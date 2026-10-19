@@ -21,6 +21,8 @@ import { fetchRates, ratesStatus, RATE_CREDIT, hasLive } from './rates.js';
 import { liveRate, curName, rateFor as rateFor2 } from './core.js';
 export { accounts };
 import { esc, ic, ACT, sheet, toast, confirmDialog, promptDialog, download } from './ui.js';
+import { nameRules, similarPairs, learnSame, learnApart, learnRelated, forget } from './merchants.js';
+import { buildGraph, clusters, neighbourhood, matches, explain, edgeText } from './simgraph.js';
 
 export const ui = { month: thisMonth(), q: '', filter: 'all', acct: '', limit: 120, by: 'group', collapsed: (() => { try { return JSON.parse(localStorage.getItem('sukli-coll') || '{}'); } catch { return {}; } })() };
 
@@ -302,7 +304,7 @@ export function review(db) {
     ${sure ? `<button class="btn wide" data-act="confirm-sure">Confirm the ${sure} I’m sure about (80%+)</button>` : ''}
     <div class="rcards">${cards.join('')}</div>`;
 }
-ACT.confirm = (el) => commit((d) => { const t = d.txs.find((x) => x.id === el.dataset.id); t.cat = el.dataset.cat; t.flag = null; stamp(t); });
+ACT.confirm = (el) => commit((d) => { const t = d.txs.find((x) => x.id === el.dataset.id); if (t.cat !== el.dataset.cat) t.corrected = true; t.cat = el.dataset.cat; t.flag = null; stamp(t); });
 ACT['confirm-sure'] = () => {
   let n = 0;
   commit((d) => {
@@ -416,11 +418,18 @@ export function settings(db) {
   const lk = look();
   const cl = s.cloud || {};
   const me = signedIn() ? (session() || {}).user : null;
-  return `${hdr('Settings')}
+  return settingsGrouped(`${hdr('Settings')}
     <section><h2>Categories</h2>
       <p class="hint">Add, rename and delete your expense and income categories, with keywords so the app guesses them.</p>
       <div class="btnrow left"><a class="btn" href="#/categories?k=expense">Expense categories</a><a class="btn ghost" href="#/categories?k=income">Income categories</a></div></section>
     ${(() => { const own = [...new Set([...Object.keys(db.settings.curDec || {}), ...db.accounts.filter((a) => !a.deleted && a.type === 'crypto').map((a) => a.cur)])]; return own.length ? `<section><h2>Coins and tokens: decimals</h2><p class="hint">How many decimals to show for coins and tokens (for example MNT as Mantle, or BBSOL).</p>${own.map((c) => `<label class="field inline"><span>${esc(c)}</span><select data-curdec="${esc(c)}">${[2, 4, 6, 8].map((n) => `<option ${CUR[c].dec === n ? 'selected' : ''}>${n}</option>`).join('')}</select><span>decimals</span></label>`).join('')}</section>` : ''; })()}
+    ${(() => { const r = nameRules(), groups = new Map(); for (const [a, k] of Object.entries(r.same)) { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a); }
+      return `<section id="nmatch"><h2>Name matching</h2><p class="hint">Teach Sukli which names mean the same thing (“starbucks antipolo” and “starbucks tagaytay”) and which do not (“tennis” the sport and “tennis socks”). It also asks when you type a new name that looks like an old one.</p>
+      <button type="button" class="btn ghost wide" data-act="nm-review">Review similar names</button>
+      <button type="button" class="btn ghost wide" data-act="nm-map">Name map (how names connect)</button>
+      ${[...groups.entries()].map(([k, as]) => `<div class="nmgroup"><b>${esc(k)}</b><div>${as.filter((a) => a !== k).map((a) => `<span class="chip">${esc(a)} <button type="button" class="x" data-act="nm-forget" data-kind="same" data-v="${esc(a)}" aria-label="Unlink ${esc(a)}">×</button></span>`).join('') || '<small class="muted">only itself</small>'}</div></div>`).join('')}
+      ${(r.related || []).length ? `<h3>Related (same family, separate)</h3>${r.related.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ~  '))}</span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="related" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}
+      ${r.apart.length ? `<h3>Kept apart</h3>${r.apart.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ≠  '))}</span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="apart" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}</section>`; })()}
     ${(() => { const st = db.settings, custom = st.customTypes || {}, n = (k) => db.accounts.filter((a) => !a.deleted && a.type === k).length;
       return `<section id="atypes"><h2>Account types</h2><p class="hint">Rename any type, or add your own, for example "Money owed to me" or "Savings pot". Choose whether a new type is something you have or something you owe.</p>
       ${Object.entries(typeNames).map(([k, l]) => `<div class="field inline"><input data-atype-label="${esc(k)}" value="${esc(l)}" aria-label="Name of ${esc(l)}"><small class="muted">${n(k)} account${n(k) === 1 ? '' : 's'}${custom[k] ? (custom[k].liab ? ' · liability' : ' · asset') : ''}</small>${custom[k] ? `<button type="button" class="btn sm ghost" data-act="atype-del" data-k="${esc(k)}">Delete</button>` : ''}</div>`).join('')}
@@ -494,7 +503,7 @@ export function settings(db) {
       <p class="hint">Edit either side: the other follows. Each entry also lets you type the ${HOME} value from your bill.</p></section>
     <section><h2>Put it on your phone</h2><p class="hint">iPhone: open this page in Safari, tap Share, then Add to Home Screen. Android: open the browser menu and choose Install app. It then works without a connection.</p></section>
     <section><h2>Erase</h2><button class="btn danger ghost" data-act="erase">Erase everything on this device</button>
-      <p class="hint">Backups in your Google Drive are not touched.</p></section>`;
+      <p class="hint">Backups in your Google Drive are not touched.</p></section>`);
 }
 export function bindSettings() {
   for (const [id, k] of [['c-url', 'url'], ['c-key', 'key'], ['c-email', 'email']]) {
@@ -634,3 +643,62 @@ document.addEventListener('change', (e) => {
   const v = e.target.value.trim(); if (!v) { e.target.value = typeNames[k]; return; }
   commit((d) => { d.settings.typeLabels = { ...(d.settings.typeLabels || {}), [k]: v }; });
 });
+
+ACT['nm-same'] = (el) => { commitQuiet((d) => learnSame(d, el.dataset.a, el.dataset.b)); toast(`Counted as the same place or item.`, { ms: 3000 }); el.closest('.nmcard')?.remove(); };
+ACT['nm-rel'] = (el) => { commitQuiet((d) => learnRelated(d, el.dataset.a, el.dataset.b)); toast('Marked as related: same family, kept separate.', { ms: 3000 }); el.closest('.nmcard')?.remove(); };
+ACT['nm-diff'] = (el) => { commitQuiet((d) => learnApart(d, el.dataset.a, el.dataset.b)); toast(`Kept as different things.`, { ms: 3000 }); el.closest('.nmcard')?.remove(); };
+ACT['nm-forget'] = (el) => { commit((d) => forget(d, el.dataset.kind, el.dataset.v)); };
+ACT['nm-review'] = () => {
+  const pairs = similarPairs(get());
+  sheet(`<p class="hint">Names that start the same way. Tell Sukli which are the same.</p>${pairs.length ? pairs.map((x) => `<div class="nmcard"><span><b>${esc(x.a)}</b> and <b>${esc(x.b)}</b></span><span class="nmbtns"><button type="button" class="btn sm" data-act="nm-same" title="Exactly the same thing" data-a="${esc(x.a)}" data-b="${esc(x.b)}">Same thing</button><button type="button" class="btn sm ghost" data-act="nm-rel" data-a="${esc(x.a)}" data-b="${esc(x.b)}" title="Same family, but its own category">Related</button><button type="button" class="btn sm ghost" data-act="nm-diff" data-a="${esc(x.a)}" data-b="${esc(x.b)}">Different</button></span></div>`).join('') : '<p class="empty">Nothing to review. All similar names are decided.</p>'}`, { title: 'Review similar names' });
+};
+
+// ---- name map: the similarity graph, drawn ----
+function mapSvg(g, key) {
+  const nb = neighbourhood(g, key), W = 340, H = 300, cx = W / 2, cy = H / 2, r = 108, pos = new Map();
+  nb.keys.forEach((k, i) => { if (i === 0) pos.set(k, [cx, cy]); else { const a = ((i - 1) / Math.max(1, nb.keys.length - 1)) * Math.PI * 2 - Math.PI / 2; pos.set(k, [cx + r * Math.cos(a), cy + r * Math.sin(a)]); } });
+  const col = { you: 'var(--ok, #2a8a4a)', chain: 'var(--accent, #3a6ee8)', text: 'var(--muted, #888)' };
+  const lines = nb.edges.map((e) => { const [x1, y1] = pos.get(e.a), [x2, y2] = pos.get(e.b); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col[e.type]}" stroke-width="${(1 + e.w * 4).toFixed(1)}" stroke-opacity="${(0.35 + e.w * 0.6).toFixed(2)}"/><text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2}" class="mapw">${Math.round(e.w * 100)}</text>`; }).join('');
+  const dots = nb.keys.map((k) => { const [x, y] = pos.get(k), n = g.nodes.get(k), lab = n.name.length > 16 ? n.name.slice(0, 15) + '…' : n.name; return `<g><circle cx="${x}" cy="${y}" r="${k === key ? 9 : 6 + Math.min(4, n.n / 5)}" class="${k === key ? 'mapc on' : 'mapc'}"/><text x="${x}" y="${y + 22}" class="mapt">${esc(lab)}</text></g>`; }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="namemap" role="img" aria-label="Names connected to ${esc(g.nodes.get(key).name)}">${lines}${dots}</svg>
+    <p class="legend"><i class="k you"></i>you said same <i class="k chain"></i>same chain <i class="k text"></i>similar spelling · numbers are the link strength (%)</p>`;
+}
+let mapApi = null;
+function mapSheet(key, q = '') {
+  const g = buildGraph(get()), cl = clusters(g, 0.6);
+  const hit = q ? matches(g, q, 4) : [];
+  const start = key && g.nodes.has(key) ? key : (cl[0] ? cl[0][0] : [...g.nodes.keys()][0]);
+  if (!start) { sheet('<p class="empty">No names yet.</p>', { title: 'Name map' }); return; }
+  const put = (html) => { if (mapApi && document.body.contains(mapApi.root)) mapApi.el.innerHTML = html; else mapApi = sheet(html, { title: 'Name map', onClose: () => { mapApi = null; } }); };
+  const nodeRows = (g.adj.get(start) || []).sort((a, b) => b.w - a.w).map((x) => `<button type="button" class="chip" data-act="nm-focus" data-k="${esc(x.to)}">${esc(g.nodes.get(x.to).name)} <small>${edgeText(x)}</small></button>`).join('');
+  put(`<div class="field"><span>Try a name</span><input id="nmq" type="text" value="${esc(q)}" placeholder="e.g. Mang Inasal Antipolo" autocomplete="off"></div>
+    ${q ? `<div class="nmcard"><span>${hit.length ? hit.map((m) => `<b>${esc(m.name)}</b> ${Math.round(m.score * 100)}%${m.cat ? ` · ${esc(m.cat)}` : ''}<br><small class="muted">${esc(explain(m))}</small>`).join('<br>') : 'Nothing close enough in your history (needs a path of at least 60%).'}</span></div>` : ''}
+    ${mapSvg(g, start)}
+    <p class="hint"><b>${esc(g.nodes.get(start).name)}</b>: ${g.nodes.get(start).n} entries${g.nodes.get(start).cat ? ` · usually ${esc(g.nodes.get(start).cat)}` : ''}. Tap a neighbour to move the map.</p>
+    <div class="chips">${nodeRows || '<small class="muted">No links yet.</small>'}</div>
+    <h3>Groups</h3>${cl.slice(0, 10).map((c) => `<button type="button" class="chip" data-act="nm-focus" data-k="${esc(c[0])}">${c.slice(0, 4).map((k) => esc(g.nodes.get(k).name)).join(' · ')}${c.length > 4 ? ` +${c.length - 4}` : ''}</button>`).join('') || '<p class="empty">No groups yet.</p>'}`);
+  const inp = document.getElementById('nmq');
+  if (inp) inp.addEventListener('change', () => mapSheet(start, inp.value.trim()));
+}
+ACT['nm-map'] = () => mapSheet();
+ACT['nm-focus'] = (el) => mapSheet(el.dataset.k);
+
+// Settings, grouped by what they are for. Advanced items sit in their own folded group.
+const SET_GROUPS = [
+  ['look', 'Look and feel', 'Colours, text size, what is shown', ['Appearance', 'Display']],
+  ['money', 'Money and alerts', 'Home currency, spending warnings', ['Currency', 'Spending safety', 'Left out of cash outflow']],
+  ['organise', 'Accounts, categories and names', 'How things are sorted and matched', ['Categories', 'Account types', 'Name matching']],
+  ['data', 'Backup and data', 'Reminders, backups, export', ['Backup reminder', 'Your data', 'Google backup (optional)']],
+  ['adv', 'Advanced', 'Most people never need these', ['Exchange rates', 'Live exchange rates', 'Coins and tokens: decimals', 'Cloud sync', 'Erase']],
+  ['help', 'Help', 'Install on your phone', ['Put it on your phone']],
+];
+const SET_OPEN = new Set(['look']);
+document.addEventListener('toggle', (e) => { const g = e.target.dataset && e.target.dataset.sgroup; if (g) { if (e.target.open) SET_OPEN.add(g); else SET_OPEN.delete(g); } }, true);
+function settingsGrouped(html) {
+  const i = html.indexOf('<section'); if (i < 0) return html;
+  const head = html.slice(0, i), secs = [...html.slice(i).matchAll(/<section[\s\S]*?<\/section>/g)].map((m) => m[0]);
+  const title = (x) => ((x.match(/<h2>([^<]*)<\/h2>/) || [])[1] || '').trim();
+  const by = new Map(SET_GROUPS.map((g) => [g[0], []]));
+  for (const sec of secs) { const t = title(sec), g = SET_GROUPS.find((x) => x[3].includes(t)) || SET_GROUPS.find((x) => x[0] === 'adv'); by.get(g[0]).push(sec); }
+  return head + SET_GROUPS.filter((g) => by.get(g[0]).length).map(([k, name, desc]) => `<details class="sgroup" data-sgroup="${k}" ${SET_OPEN.has(k) ? 'open' : ''}><summary><b>${name}</b><small>${desc}</small></summary>${by.get(k).join('')}</details>`).join('');
+}

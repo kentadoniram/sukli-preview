@@ -1,5 +1,6 @@
 // App shell: routing, tab bar, first-run screen, service worker, auto-backup hook.
 import { applyTypes } from './accpage.js';
+import { setNameRules } from './merchants.js';
 import { initBackup } from './backup.js';
 import { load, get, subscribe, commit, seedCategories, balances, reviewCount, latestMonth, thisMonth, monthOf, priv } from './core.js';
 import { importBluecoins } from './importer.js';
@@ -15,6 +16,7 @@ import { ratesInit } from './rates.js';
 import { initGestures } from './gestures.js';
 import { bin, autoPurge } from './bin.js';
 import { analytics } from './analytics.js';
+import './scan.js';
 import { commitQuiet } from './core.js';
 
 const routes = { home, ledger, review, accounts, reports, settings, calendar, budget, cashflow, categories, outlook, bin, analytics };
@@ -40,6 +42,7 @@ function tabs(route) {
 
 function render() {
   applyTypes(get().settings);
+  setNameRules(get().settings.nameRules);
   pending = false;
   applyHide();
   const db = get();

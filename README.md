@@ -2,7 +2,35 @@
 
 A private money tracker that runs entirely in the browser. Your data stays on your device, with an optional backup to a hidden folder in your own Google Drive. No server, no subscription, no AI service: the category guesser is a small model that learns from your own entries and runs on the phone.
 
+## What's new in v9 (name graph, receipt scanner)
+
+- **Name similarity graph.** Names you have used are nodes; a link between two names has a strength from 0 to 100%: *you said same* (100%), *same chain* (95%), or *similar spelling and shared words* (below 90%). "Different" removes a link for good. A new name is attached to the graph and the strongest path to a known name is found (least-cost path, cost = -ln strength, Dijkstra), so a match through two links is weaker than a direct one. The entry sheet shows "Matched through: …" with the percentages, and Settings, Name matching, **Name map** draws the neighbourhood of any name, lets you try a name and shows the path.
+- **Better name matching** (kana/width/branch/receipt-code clean-up, typo matching) and **faster learning from corrections**: a category you change by hand counts three times in the model.
+- **Receipt scanner** (Menu, Scan a receipt): take or choose a photo; Japanese and English text is read on the device (Tesseract, bundled in `vendor/ocr`, about 9 MB, works offline, nothing uploaded). It finds the shop, date and time, total and item lines (quantity lines, discounts, 軽 marks, tax on top or included), matches the shop to a name in your history, guesses the category, and shows a confidence for each field. A cross-check tells you whether the items add up to the total. You correct anything, then **Continue to entry** to pick the account and save. Or paste receipt text instead of a photo.
+  - Limits: confidence is a guide, not a probability; small, blurry or crumpled thermal prints lose digits (the 軽 mark is often read as 8; this is repaired only when it makes the receipt add up); Japanese item names are the least reliable part.
+
+## What's new in v10
+
+- **Receipt reading, rebuilt around real photos** (tested on three cisca receipts): the photo is cropped to the paper, the table texture and shadows are removed, the reader uses a one-block layout, and it takes two looks (sharp black-and-white and soft grey) and keeps the more consistent one. The parser now finds the total by agreement (a "合計" line, the payment line, or taxable amount plus tax), ignores IC-card balances, card numbers, phone numbers and register codes, reads dates even when 年/月/日 are misread, finds the shop name above the address, and keeps one correct line instead of several wrong items.
+- **Settings are grouped:** Look and feel, Money and alerts, Accounts/categories/names, Backup and data, Advanced (folded), Help.
+- **Name matching has a middle answer:** Same thing, Related (same family, its own category), Different.
+
+## What's new in v8 (statistics)
+
+- **Name matching helper:** when you type a new name that looks like one you already use ("tennis socks" vs "tennis", "mang inasal antipolo" vs "mang inasal tagaytay"), a small card asks Same or Different and remembers your answer. Settings, Name matching lists what you linked or kept apart (undo any), and has "Review similar names" for the whole history.
+
+- **New account type inside the New account form** (last choice in the Type list): name it, say whether you owe it, and it is selected right away.
+- **Merchant matching:** "STARBUCKS TOKYO", "スターバックス" and "Starbucks 渋谷" count as one place (known chains in English and Japanese; other names lose branch words, place names and digits).
+- **Regular payments found** (Outlook): subscriptions and bills found from timing and amount. Same-day entries from one merchant count once; weekly habits are not called subscriptions.
+- **Correlations:** which weekly habits move together, shown only when the link is strong across 26 weeks. Worded as a pattern, never a cause.
+
+- **Robust forecast:** next month is predicted by whichever simple method (median/average of recent months, weighted recent, trend, same month last year) would have predicted your own past months best. Months with no spending are kept. Outlook shows the method and a rough error range once there are enough test months.
+- **Repeats every month** now adds up same-name entries per month and needs a steady amount.
+- **Habit insights:** a gap in something you do almost every week is mentioned only when the last 7 days are far outside your own range, and never when you logged very little overall (travel, not logging). Also weekday vs weekend, week after payday vs before, and category trends with a confidence level. These are patterns, not causes.
+
 ## What's new in v7
+
+- Merged build: your v7 changes plus these from the earlier build: inverse price line and a Trading-fee hint on crypto trades, "Crypto · exchange" groups in the account lists, a token you gave your own decimals (like MNT as Mantle) never takes the bank rate of the same code, and one clear (x) button instead of two.
 
 - **Searchable account list** in the entry sheet: search by name, type or currency, filter by currency, and picking an account in another currency switches the currency for you.
 - **Calculator inside the amount field**; the currency button stays at the far right.
@@ -38,17 +66,7 @@ A private money tracker that runs entirely in the browser. Your data stays on yo
 - **Appearance** (Settings): colour, light/dark, five text sizes, and hide style (dots or blur). Appearance is stored per device.
 - Smaller default text and smaller name suggestions.
 
-### What's new in v8 — local intelligence improvements
-
-- **Forecasts choose among lightweight methods by rolling-origin backtesting** instead of assuming a three-month average is always best. Candidate methods are median of the last three months, mean of the last three months, weighted recent average, and seasonal-naive when enough history exists.
-- **Zero-spending months remain in the history.** They are treated as real observations instead of being skipped, which avoids biasing forecasts upward.
-- **Forecast estimates show data coverage and a rough historical-error range** when there are enough backtest predictions. This range is descriptive, not a formal confidence interval.
-- **Repeated expense detection aggregates duplicate same-name transactions within each month**, rather than silently retaining only one transaction.
-- **Behavior observations identify gaps in previously frequent purchases** using transaction timing. They are worded as recorded-history observations, not assumptions about health or intent.
-- **CSV import recognizes `Category Type` as the category group** for exports that use that header, preserving parent/child category structure.
-- All new calculations run locally. No AI service, model download, or transaction upload is added.
-
-# What it does
+## What it does
 
 Open the menu (top left) for every window.
 
@@ -120,9 +138,3 @@ The app asks only for its own hidden folder (`drive.appdata`) and keeps one snap
 - Google sign-in has only been tested against a simulated Drive, not real Google. Sign-in tokens are short-lived, so auto-backup may sometimes ask you to tap **Back up now**.
 - Receipts are entered by hand for now (split into items on the entry sheet). Photo reading is the next piece.
 - Crypto balances are shown as money moved in and out, not market value.
-
-Developer check for the forecast selector (requires Node.js):
-
-```sh
-node --experimental-default-type=module tests/forecasting.test.mjs
-```

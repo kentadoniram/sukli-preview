@@ -3,6 +3,8 @@ import {
   get, commit, uid, stamp, nowStamp, toLocalInput, fromLocalInput, rateFor, fmt, freqNames, accountMap, catMap,
   findOrAddCategory, groupColor, groupLetter, BASE, HOME, homeFx, homeRate, balances, CUR, priv, softDelete,
 } from './core.js';
+import { buildGraph, makeResolver, explain } from './simgraph.js';
+import { nameRules } from './merchants.js';
 import { buildModel, predict, suggest, lookup, catCandidates, byAmount, recentNames } from './predict.js';
 import { evalExpr, isExpr, tidy } from './calc.js';
 import { predictFee, safetyCheck, typeGroupName, typeGroupOrder, transferHints } from './finance.js';
@@ -11,13 +13,14 @@ import { applyHide } from './appearance.js';
 import { openDatePicker, prettyDate } from './datepicker.js';
 import { openCurrencyPicker, favCurs, flagOf } from './curpicker.js';
 import { openAccountPicker } from './acctpicker.js';
+import { similarNames } from './merchants.js';
 
 // ---- models are rebuilt only when the data changed ----
 const cache = {};
 export function modelFor(kind) {
   const db = get();
-  const key = db.txs.length + ':' + db.txs.reduce((m, t) => Math.max(m, t.updatedAt || 0), 0) + ':' + db.categories.length + ':' + db.categories.reduce((m, c) => Math.max(m, c.updatedAt || 0), 0);
-  if (!cache[kind] || cache[kind].key !== key) cache[kind] = { key, m: buildModel(db.txs, kind, db.categories) };
+  const key = db.txs.length + ':' + db.txs.reduce((m, t) => Math.max(m, t.updatedAt || 0), 0) + ':' + db.categories.length + ':' + db.categories.reduce((m, c) => Math.max(m, c.updatedAt || 0), 0) + ':' + JSON.stringify(nameRules());
+  if (!cache[kind] || cache[kind].key !== key) cache[kind] = { key, m: buildModel(db.txs, kind, db.categories, makeResolver(buildGraph(db))) };
   return cache[kind].m;
 }
 
@@ -67,12 +70,12 @@ function acctOptions(sel, skip, cur) {
   const groups = new Map();
   for (const a of db.accounts) {
     if (a.deleted || a.id === skip || (a.archived && a.id !== sel) || (cur && a.cur !== cur)) continue;
-    const g = typeGroupName(a.type);
+    const g = a.type === 'crypto' && a.exchange ? 'Crypto · ' + a.exchange : typeGroupName(a.type);
     if (!groups.has(g)) groups.set(g, { o: typeGroupOrder(a.type), list: [] });
     groups.get(g).list.push(a);
   }
   const opt = (a) => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${esc(a.name)} · ${a.cur}</option>`;
-  return [...groups.entries()].sort((x, y) => x[1].o - y[1].o).map(([g, v]) =>
+  return [...groups.entries()].sort((x, y) => x[1].o - y[1].o || x[0].localeCompare(y[0])).map(([g, v]) =>
     `<optgroup label="${esc(g)}">${v.list.sort((a, b) => (lastUsed.get(b.id) || '').localeCompare(lastUsed.get(a.id) || '') || a.name.localeCompare(b.name)).map(opt).join('')}</optgroup>`).join('');
 }
 function catOptions(sel, kind) {
@@ -203,7 +206,7 @@ export function openEntry(opts = {}) {
     el.innerHTML = `<label class="check"><input type="checkbox" id="f-conv" ${f.convert ? 'checked' : ''}> ${a.type === 'crypto' && b.type === 'crypto' ? `Trade ${a.cur} for ${b.cur} (not 1:1)` : `Convert ${a.cur} to ${b.cur} (use an exchange rate)`}</label>
       ${f.convert ? `<div class="convbox"><div class="fxline one"><label class="fxrate"><span>1 ${a.cur} =</span><input id="f-crate" inputmode="decimal" aria-label="Exchange rate" value="${esc(f.cRate)}"><span>${b.cur}</span></label>
         <label class="fxpeso"><span>Received (${b.cur})</span><input id="f-toamt" inputmode="decimal" value="${esc(f.toAmount)}" placeholder="0"></label></div>
-        <button type="button" class="linkbtn" data-e="livecross">Use today’s rate</button> <small class="muted" id="crossnote"></small></div>`
+        <button type="button" class="linkbtn" data-e="livecross">Use today’s rate</button> <small class="muted" id="crossnote"></small><small class="hint" id="invrate"></small>${a.type === 'crypto' || b.type === 'crypto' ? '<small class="hint">Add the exchange’s buy or sell fee below (Fee, type “Trading fee”).</small>' : ''}</div>`
         : `<small class="hint">Off: the same number arrives in ${esc(b.name)}. Turn on when the amounts differ, like USDT to PHP.</small>`}`;
   }
   function crossRate() {
@@ -214,9 +217,11 @@ export function openEntry(opts = {}) {
   function syncCross(from) {
     const amt = num(f.amount), cr = $f('f-crate'), ta = $f('f-toamt');
     if (!cr || !ta) return;
+    const inv = $f('invrate'); const showInv = () => { const r = num(f.cRate), a2 = acctOf(f.acct), b2 = acctOf(f.toAcct); if (inv) inv.textContent = r > 0 && a2 && b2 ? `1 ${b2.cur} = ${prec(1 / r)} ${a2.cur}` : ''; };
     if (from === 'rate') { const r = num(f.cRate); if (amt > 0 && r > 0) { f.toAmount = String(Math.round(amt * r * 1e6) / 1e6); ta.value = f.toAmount; } }
     else if (from === 'to') { const t = num(f.toAmount); if (amt > 0 && t > 0) { f.cRate = prec(t / amt); cr.value = f.cRate; } }
     else { const r = num(f.cRate); if (amt > 0 && r > 0) { f.toAmount = String(Math.round(amt * r * 1e6) / 1e6); ta.value = f.toAmount; } }
+    showInv();
   }
   function renderFx() {
     const a = acctOf(f.acct);
@@ -287,6 +292,7 @@ export function openEntry(opts = {}) {
     const guess = typed && !f.catTouched && f.cat && (f.guessWhy || (f.pred && f.pred.cats[0] ? `${Math.round(f.pred.cats[0].p * 100)}% sure` : ''));
     const nofit = typed.length >= 2 && !cands.length && !(f.pred && f.pred.cats.length && f.pred.conf >= 0.35);
     el.innerHTML = `<div class="field"><span>Category ${guess ? `<small class="muted">· guessed: ${esc(f.guessWhy || guess)}</small>` : ''}</span>
+      ${guess && f.pred && f.pred.via ? `<small class="muted via">Matched through: ${esc(explain({ path: f.pred.via.path }))}</small>` : ''}
       <div class="chips">${list.map((x) => { const c = cm.get(x.id); return ` <button type="button" class="chip cat ${f.cat === x.id ? 'on' : ''} ${guess && f.cat === x.id ? 'guess' : ''}" data-e="cat" data-v="${x.id}"><i style="background:${groupColor(c.group)}">${groupLetter(c.group)}</i>${esc(c.name)}</button>`; }).join('')}
       <button type="button" class="chip more" data-e="allcats">All</button>
       <button type="button" class="chip more" data-e="newcat">+ New</button></div>
@@ -371,6 +377,16 @@ export function openEntry(opts = {}) {
     renderAccts(); renderFx();
   }
   function useAccount(id) { f.acct = id; f.acctSuggested = true; f.fx = ''; f.fxMode = 'rate'; f.peso = ''; renderAccts(); renderFx(); }
+  // remember what the app guessed when you pick something else: a fixed guess teaches the model more
+  function pickCat(id) { if (!f.catTouched && f.cat && f.cat !== id) f.guessed = f.cat; f.cat = id; f.catTouched = true; }
+
+  // a new name that looks like one you already use: ask, remember the answer
+  function renderNameHelp() {
+    let el = form.querySelector('#namehelp');
+    if (!el) { const nf = $f('namefield'); if (!nf) return; el = document.createElement('div'); el.id = 'namehelp'; el.className = 'namehelp'; nf.after(el); }
+    const c = f.kind === 'transfer' ? [] : similarNames(get(), f.name, 1);
+    el.innerHTML = c.map((x) => `<div class="nmcard"><span>How does this compare with <b>${esc(x.name)}</b>${x.category ? ` (${esc(x.category)})` : ''}?<small class="nmhint">Related = same family, own category (coffee beans, coffee matcha)</small></span><span class="nmbtns"><button type="button" class="btn sm" data-act="nm-same" title="Exactly the same thing" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Same thing</button><button type="button" class="btn sm ghost" data-act="nm-rel" data-a="${esc(f.name)}" data-b="${esc(x.name)}" title="Same family, but its own category">Related</button><button type="button" class="btn sm ghost" data-act="nm-diff" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Different</button></span></div>`).join('');
+  }
   function applyPick(name) {
     f.name = name; $f('f-name').value = name;
     if (f.kind === 'transfer') {
@@ -411,7 +427,7 @@ export function openEntry(opts = {}) {
       else if (!f.qtabManual || f.qtab === 'fit') renderFreq();
     }
     else if (id === 'f-fee') { f.fee = e.target.value; f.feeTouched = true; f.feeSuggested = false; }
-    else if (id === 'f-name') { f.name = e.target.value; suggestAcct(); refreshPred(); renderSugg(); if (f.kind !== 'transfer' && !f.qtabManual) renderFreq(); }
+    else if (id === 'f-name') { f.name = e.target.value; renderNameHelp(); suggestAcct(); refreshPred(); renderSugg(); if (f.kind !== 'transfer' && !f.qtabManual) renderFreq(); }
     else if (id === 'f-fx') { f.fx = e.target.value; f.fxMode = 'rate'; updateFxVal(); }
     else if (id === 'f-peso') { f.peso = e.target.value; f.fxMode = 'peso'; updateFxVal(); }
     else if (id === 'f-crate') { f.cRate = e.target.value; syncCross('rate'); }
@@ -489,10 +505,10 @@ export function openEntry(opts = {}) {
       case 'when': openDatePicker(f.date, (val) => { f.date = val; renderWhen(); refreshPred(); renderSafety(); }, { title: 'When was it?' }); break;
       case 'livecross': { const r = crossRate(); if (r) { f.cRate = prec(r); const cr = $f('f-crate'); if (cr) cr.value = f.cRate; syncCross('rate'); } else toast('No live rate for this pair yet. Type one.'); break; }
       case 'feeby': f.feeBy = v; f.feeTouched = true; f.feeSuggested = false; renderFee(); break;
-      case 'cat': f.cat = v; f.catTouched = true; renderCats(); renderSafety(); break;
+      case 'cat': pickCat(v); renderCats(); renderSafety(); break;
       case 'eye': priv.set(!priv.on); applyHide(); b.textContent = (priv.on ? 'Show' : 'Hide') + ' amounts'; updateFxVal(); updateItemLeft(); window.dispatchEvent(new Event('sukli-render')); break;
-      case 'newcat': openCategoryForm({ kind: f.kind, name: f.name.trim().replace(/\b\w/g, (m) => m.toUpperCase()).slice(0, 40), keywords: f.name.trim().toLowerCase(), onDone: (c) => { f.cat = c.id; f.catTouched = true; refreshPred(); renderCats(); } }); break;
-      case 'allcats': openCategoryPicker(f.kind, (id) => { f.cat = id; f.catTouched = true; renderCats(); }); break;
+      case 'newcat': openCategoryForm({ kind: f.kind, name: f.name.trim().replace(/\b\w/g, (m) => m.toUpperCase()).slice(0, 40), keywords: f.name.trim().toLowerCase(), onDone: (c) => { pickCat(c.id); refreshPred(); renderCats(); } }); break;
+      case 'allcats': openCategoryPicker(f.kind, (id) => { pickCat(id); renderCats(); }); break;
       case 'items-on': f.showItems = true; if (!f.items.length) f.items.push({ n: '', amt: '', cat: '' }); renderItems(); break;
       case 'item-add': f.items.push({ n: '', amt: '', cat: '' }); renderItems(); form.querySelectorAll('.item .in-n')[f.items.length - 1].focus(); break;
       case 'item-del': f.items.splice(+v, 1); renderItems(); break;
@@ -584,6 +600,7 @@ export function openEntry(opts = {}) {
     }
     const rec = { kind: f.kind, amount, cur: a.cur, fx, date: f.date, name: f.name.trim(), cat, acct: a.id,
       toAcct: f.kind === 'transfer' ? f.toAcct : '', toAmount, fee, feeBy: fee ? f.feeBy : '', feeFx, feeCur, notes: f.notes.trim(), items: items && items.length ? items : [], flag };
+    if (f.kind !== 'transfer' && cat && ((f.catTouched && f.guessed && f.guessed !== cat) || (existing && existing.cat && existing.cat !== cat) || (existing && existing.corrected))) rec.corrected = true;
     let savedAs;
     commit((d) => {
       if (fee) {

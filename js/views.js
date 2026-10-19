@@ -7,7 +7,7 @@ import {
 import { pace, totals, trend, baselineMonths } from './insights.js';
 import { ui, hdr, monthNav, strip, money, row, gbar, coll, trendChart, budgetOf } from './screens.js';
 import { openEntry, openCategoryForm } from './entry.js';
-import { forecastNext, behaviorNotes } from './finance.js';
+import { forecastNext, behaviorNotes, detectRecurring } from './finance.js';
 import { reminderBanner } from './accpage.js';
 import { ACT, sheet, ic, esc, confirmDialog, promptDialog, pushOverlay, toast } from './ui.js';
 
@@ -31,6 +31,7 @@ ACT.menu = () => {
     <ul>${item('home', 'Home', 'home')}${item('ledger', 'Entries', 'list')}${item('calendar', 'Calendar', 'calendar')}${item('budget', 'Budget', 'pie')}${item('cashflow', 'Cash flow', 'flow')}${item('outlook', 'Outlook', 'spark')}${item('analytics', 'Analytics', 'chart')}${item('accounts', 'Accounts', 'wallet')}${item('review', 'Review', 'check', n)}</ul>
     <h3>Categories</h3>
     <ul>${item('categories?k=expense', 'Expense categories', 'tag')}${item('categories?k=income', 'Income categories', 'tag')}</ul>
+    <ul>${'<li><a href="#" data-act="scan">'}${ic('camera')}<span>Scan a receipt</span></a></li>${''}</ul>
     <ul class="last">${item('bin', 'Recycle bin', 'trash')}${item('settings', 'Settings', 'gear')}</ul></nav>`;
   document.body.appendChild(wrap);
   document.body.classList.add('noscroll');
@@ -39,7 +40,7 @@ ACT.menu = () => {
   const close = () => ov.close();
   drawerOpen = close;
   document.addEventListener('keydown', onKey);
-  wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-x]') || e.target.closest('a')) close(); });
+  wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-x]') || e.target.closest('a, [data-act]')) close(); });
   const first = wrap.querySelector('a'); if (first && matchMedia('(pointer:fine)').matches) first.focus();
 };
 
@@ -361,10 +362,12 @@ export function outlook(db) {
   return `${hdr('Outlook')}
     ${reminderBanner(db)}
     <section class="outhead"><span class="muted">${esc(monthLabel(f.next))} forecast</span><b class="big">${R(f.total)}</b>
+      ${f.method ? `<small class="muted fcmethod">Based on the ${esc(f.method)}${f.low != null ? `. In past months this kind of guess was usually within about ${R(f.high - f.total)} either way (${R(f.low)} to ${R(f.high)}), tested on ${f.tested} months.` : '. Not enough history yet to test how close it usually is.'}</small>` : ''}
       <span class="${left >= 0 ? 'in' : 'neg'}">${f.incomeAvg ? (left >= 0 ? `About ${R(left)} left after the usual ${R(f.incomeAvg)} income` : `About ${R(-left)} more than the usual ${R(f.incomeAvg)} income`) : 'Add income entries to compare against what comes in'}</span>
-      <small class="muted">Uses ${f.historyCount} months of history. Selected method: ${esc(f.method)}${f.lower != null && f.upper != null ? ` · rough historical error range ${R(f.lower)}–${R(f.upper)}` : ' · not enough historical tests for a reliable range'}. Forecasts are estimates, not promises.</small></section>
+      <small class="muted">Based on ${f.months.length === 1 ? 'one earlier month' : f.months.length + ' earlier months'} (${f.months.slice().reverse().map((m) => monthLabel(m).split(' ')[0]).join(', ')}). It is a plain average of your own history, not a promise.</small></section>
     ${coll('o-chart', 'Spending by month', `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Spending in recent months and the forecast">${inc}${bars}</svg><p class="legend"><i class="k bar"></i>Actual <i class="k dash"></i>Forecast${f.incomeAvg ? ' <i class="k inc"></i>Usual income' : ''} · tap a bar</p>`)}
     ${coll('o-notes', 'Warnings, tips and rewards', notesList(notes))}
     ${coll('o-groups', 'Where it will probably go', rows ? `${rows}<p class="hint tap">The tick shows how far this month is. Tap a group for its details.</p>` : '<p class="empty">Nothing to show yet.</p>')}
+    ${(() => { const reg = detectRecurring(db); return reg.length ? coll('o-reg', 'Regular payments found', `<p class="hint">Found from how often and how much you pay. About ${R(reg.reduce((n, r) => n + r.monthly, 0))} a month in total.</p><div class="rows plain">${reg.slice(0, 8).map((r) => `<div class="row"><span class="rmain"><strong>${esc(r.name)}</strong><small>${esc(r.every)}${r.steady ? '' : ', amount varies'} · next around ${esc(r.next)}</small></span><span class="ramt"><b>${R(r.amount)}</b></span></div>`).join('')}</div>`) : ''; })()}
     ${f.fixed.length ? coll('o-fixed', 'Repeats every month', `<div class="rows plain">${f.fixed.map((x) => `<div class="row"><span class="rmain"><strong>${esc(x.name)}</strong><small>seen in each of the last ${f.months.length} months</small></span><span class="ramt"><b>${R(x.v)}</b></span></div>`).join('')}</div>`) : ''}`;
 }
