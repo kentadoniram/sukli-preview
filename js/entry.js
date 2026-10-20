@@ -5,7 +5,6 @@ import {
 } from './core.js';
 import { buildGraph, makeResolver, explain } from './simgraph.js';
 import { nameRules } from './merchants.js';
-import { compareCard, relatedNames } from './compare.js';
 import { buildModel, predict, suggest, lookup, catCandidates, byAmount, recentNames } from './predict.js';
 import { evalExpr, isExpr, tidy } from './calc.js';
 import { predictFee, safetyCheck, typeGroupName, typeGroupOrder, transferHints } from './finance.js';
@@ -110,7 +109,7 @@ export function openEntry(opts = {}) {
       <input id="f-name" autocomplete="off" value="${esc(f.name)}" placeholder="e.g. Life Tsukagoshi, bus, salary" ${existing ? '' : 'autofocus'}>
       <div id="sugg" class="sugg" hidden></div></div>
     <div class="field amount" id="amountbox"><span class="amtlabel">Amount <button type="button" class="linkbtn eye" data-e="eye" aria-label="Hide or show amounts">${priv.on ? 'Show' : 'Hide'} amounts</button></span>
-      <div class="amtrow"><div class="amtwrap"><input id="f-amount" inputmode="${f.calc ? 'none' : 'decimal'}" autocomplete="off" placeholder="0" value="${esc(commasOn() ? withCommas(f.amount) : f.amount)}"><button type="button" class="calcbtn" data-e="calc" aria-label="Calculator" aria-pressed="false" title="Calculator">${ic('calc')}</button></div><span id="curwrap" class="curwrap"></span></div>
+      <div class="amtrow"><div class="amtwrap"><input id="f-amount" inputmode="${f.calc ? 'none' : 'decimal'}" autocomplete="off" placeholder="0" value="${esc(commasOn() ? withCommas(f.amount) : f.amount)}"><button type="button" class="amtclear" data-e="amtclear" aria-label="Clear amount">×</button><button type="button" class="calcbtn" data-e="calc" aria-label="Calculator" aria-pressed="false" title="Calculator">${ic('calc')}</button></div><span id="curwrap" class="curwrap"></span></div>
       <div id="calcres" class="calcres" hidden></div><div id="keypad" class="keypad" hidden></div></div>
     <div id="fxline"></div>
     <div id="acctrow"></div>
@@ -386,8 +385,7 @@ export function openEntry(opts = {}) {
     let el = form.querySelector('#namehelp');
     if (!el) { const nf = $f('namefield'); if (!nf) return; el = document.createElement('div'); el.id = 'namehelp'; el.className = 'namehelp'; nf.after(el); }
     const c = f.kind === 'transfer' ? [] : similarNames(get(), f.name, 1);
-    const rel = f.kind === 'transfer' || !f.name.trim() ? [] : relatedNames(get(), f.name).slice(0, 2);
-    el.innerHTML = c.map((x) => compareCard(get(), f.name.trim(), x.name)).join('') + (c.length ? '' : rel.map((x) => `<p class="relhint muted">Related to <b>${esc(x.name)}</b>${x.cat ? ` (${esc(x.cat)})` : ''}, ${Math.round(x.w * 100)}% close. It keeps its own category.</p>`).join(''));
+    el.innerHTML = c.map((x) => `<div class="nmcard"><span>How does this compare with <b>${esc(x.name)}</b>${x.category ? ` (${esc(x.category)})` : ''}?<small class="nmhint">Related = same family, own category (coffee beans, coffee matcha)</small></span><span class="nmbtns"><button type="button" class="btn sm" data-act="nm-same" title="Exactly the same thing" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Same thing</button><button type="button" class="btn sm ghost" data-act="nm-rel" data-a="${esc(f.name)}" data-b="${esc(x.name)}" title="Same family, but its own category">Related</button><button type="button" class="btn sm ghost" data-act="nm-diff" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Different</button></span></div>`).join('');
   }
   function applyPick(name) {
     f.name = name; $f('f-name').value = name;
@@ -498,6 +496,7 @@ export function openEntry(opts = {}) {
         arrange(); renderSeg(); renderFreq(); renderAccts(); renderFx(); refreshPred(); renderCats(); renderItems(); renderSugg(); renderSafety(); break;
       case 'qtab': f.qtab = v; f.qtabManual = true; renderFreq(); break;
       case 'pick': applyPick(v); break;
+      case 'amtclear': { const inp = $f('f-amount'); inp.value = ''; inp.classList.remove('guess'); inp.dispatchEvent(new Event('input', { bubbles: true })); inp.focus(); break; }
       case 'acctpick': { const to = b.dataset.which === 'to', sel = $f(to ? 'f-to' : 'f-acct'), a = acctOf(f.acct);
         openAccountPicker({ selected: sel.value, skip: to ? f.acct : (f.kind === 'transfer' ? f.toAcct : ''), cur: to ? '' : (a && a.cur) || '', title: to ? 'To account' : f.kind === 'transfer' ? 'From account' : 'Account' }, (id) => { sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true })); }); break; }
       case 'curpick': openCurrencyPicker((c) => { const sel = $f('f-cur'); if (![...sel.options].some((o) => o.value === c)) sel.add(new Option(c, c)); sel.value = c; sel.dispatchEvent(new Event('change', { bubbles: true })); }, { title: 'Currency' }); break;

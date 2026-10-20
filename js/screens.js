@@ -21,8 +21,8 @@ import { fetchRates, ratesStatus, RATE_CREDIT, hasLive } from './rates.js';
 import { liveRate, curName, rateFor as rateFor2 } from './core.js';
 export { accounts };
 import { esc, ic, ACT, sheet, toast, confirmDialog, promptDialog, download } from './ui.js';
+import { dailySummary } from './finance.js';
 import { nameRules, similarPairs, learnSame, learnApart, learnRelated, forget } from './merchants.js';
-import { compareCard } from './compare.js';
 import { buildGraph, clusters, neighbourhood, matches, explain, edgeText } from './simgraph.js';
 
 export const ui = { month: thisMonth(), q: '', filter: 'all', acct: '', limit: 120, by: 'group', collapsed: (() => { try { return JSON.parse(localStorage.getItem('sukli-coll') || '{}'); } catch { return {}; } })() };
@@ -114,6 +114,7 @@ export function home(db) {
   const ins = insights(db, ui.month);
   return `${monthNav()}
     ${strip(st)}
+    ${dailyCard(db)}
     <section class="spendable"><div><span>Spendable now</span><b>${money(sp.total)}</b></div><div class="curs">${chips || '<span class="muted">No balances yet</span>'}</div>
       ${sp.missing.length ? `<p class="hint">Not counted: ${sp.missing.join(', ')} (set a rate in Settings).</p>` : ''}</section>
     ${reminderBanner(db)}
@@ -429,7 +430,7 @@ export function settings(db) {
       <button type="button" class="btn ghost wide" data-act="nm-review">Review similar names</button>
       <button type="button" class="btn ghost wide" data-act="nm-map">Name map (how names connect)</button>
       ${[...groups.entries()].map(([k, as]) => `<div class="nmgroup"><b>${esc(k)}</b><div>${as.filter((a) => a !== k).map((a) => `<span class="chip">${esc(a)} <button type="button" class="x" data-act="nm-forget" data-kind="same" data-v="${esc(a)}" aria-label="Unlink ${esc(a)}">×</button></span>`).join('') || '<small class="muted">only itself</small>'}</div></div>`).join('')}
-      ${(r.related || []).length ? `<h3>Related (same family, separate)</h3>${r.related.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ~  '))} <small class="muted">${Math.round(((r.relw || {})[k] ?? 0.6) * 100)}% close</small></span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="related" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}
+      ${(r.related || []).length ? `<h3>Related (same family, separate)</h3>${r.related.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ~  '))}</span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="related" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}
       ${r.apart.length ? `<h3>Kept apart</h3>${r.apart.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ≠  '))}</span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="apart" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}</section>`; })()}
     ${(() => { const st = db.settings, custom = st.customTypes || {}, n = (k) => db.accounts.filter((a) => !a.deleted && a.type === k).length;
       return `<section id="atypes"><h2>Account types</h2><p class="hint">Rename any type, or add your own, for example "Money owed to me" or "Savings pot". Choose whether a new type is something you have or something you owe.</p>
@@ -645,21 +646,24 @@ document.addEventListener('change', (e) => {
   commit((d) => { d.settings.typeLabels = { ...(d.settings.typeLabels || {}), [k]: v }; });
 });
 
+ACT['nm-same'] = (el) => { commitQuiet((d) => learnSame(d, el.dataset.a, el.dataset.b)); toast(`Counted as the same place or item.`, { ms: 3000 }); el.closest('.nmcard')?.remove(); };
+ACT['nm-rel'] = (el) => { commitQuiet((d) => learnRelated(d, el.dataset.a, el.dataset.b)); toast('Marked as related: same family, kept separate.', { ms: 3000 }); el.closest('.nmcard')?.remove(); };
+ACT['nm-diff'] = (el) => { commitQuiet((d) => learnApart(d, el.dataset.a, el.dataset.b)); toast(`Kept as different things.`, { ms: 3000 }); el.closest('.nmcard')?.remove(); };
 ACT['nm-forget'] = (el) => { commit((d) => forget(d, el.dataset.kind, el.dataset.v)); };
 ACT['nm-review'] = () => {
-  const db = get(), pairs = similarPairs(db);
-  sheet(`<p class="hint">Names that start the same way. For each pair choose Same, Related or Different.</p>${pairs.length ? pairs.map((x) => compareCard(db, x.a, x.b)).join('') : '<p class="empty">Nothing to review. All similar names are decided.</p>'}`, { title: 'Review similar names' });
+  const pairs = similarPairs(get());
+  sheet(`<p class="hint">Names that start the same way. Tell Sukli which are the same.</p>${pairs.length ? pairs.map((x) => `<div class="nmcard"><span><b>${esc(x.a)}</b> and <b>${esc(x.b)}</b></span><span class="nmbtns"><button type="button" class="btn sm" data-act="nm-same" title="Exactly the same thing" data-a="${esc(x.a)}" data-b="${esc(x.b)}">Same thing</button><button type="button" class="btn sm ghost" data-act="nm-rel" data-a="${esc(x.a)}" data-b="${esc(x.b)}" title="Same family, but its own category">Related</button><button type="button" class="btn sm ghost" data-act="nm-diff" data-a="${esc(x.a)}" data-b="${esc(x.b)}">Different</button></span></div>`).join('') : '<p class="empty">Nothing to review. All similar names are decided.</p>'}`, { title: 'Review similar names' });
 };
 
 // ---- name map: the similarity graph, drawn ----
 function mapSvg(g, key) {
   const nb = neighbourhood(g, key), W = 340, H = 300, cx = W / 2, cy = H / 2, r = 108, pos = new Map();
   nb.keys.forEach((k, i) => { if (i === 0) pos.set(k, [cx, cy]); else { const a = ((i - 1) / Math.max(1, nb.keys.length - 1)) * Math.PI * 2 - Math.PI / 2; pos.set(k, [cx + r * Math.cos(a), cy + r * Math.sin(a)]); } });
-  const col = { you: 'var(--ok, #2a8a4a)', chain: 'var(--accent, #3a6ee8)', text: 'var(--muted, #888)', related: 'var(--warn, #c9871a)' };
-  const lines = nb.edges.map((e) => { const [x1, y1] = pos.get(e.a), [x2, y2] = pos.get(e.b); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col[e.type]}" stroke-width="${(1 + e.w * 4).toFixed(1)}" ${e.type === 'related' ? 'stroke-dasharray="5 4"' : ''} stroke-opacity="${(0.35 + e.w * 0.6).toFixed(2)}"/><text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2}" class="mapw">${Math.round(e.w * 100)}</text>`; }).join('');
+  const col = { you: 'var(--ok, #2a8a4a)', chain: 'var(--accent, #3a6ee8)', text: 'var(--muted, #888)' };
+  const lines = nb.edges.map((e) => { const [x1, y1] = pos.get(e.a), [x2, y2] = pos.get(e.b); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col[e.type]}" stroke-width="${(1 + e.w * 4).toFixed(1)}" stroke-opacity="${(0.35 + e.w * 0.6).toFixed(2)}"/><text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2}" class="mapw">${Math.round(e.w * 100)}</text>`; }).join('');
   const dots = nb.keys.map((k) => { const [x, y] = pos.get(k), n = g.nodes.get(k), lab = n.name.length > 16 ? n.name.slice(0, 15) + '…' : n.name; return `<g><circle cx="${x}" cy="${y}" r="${k === key ? 9 : 6 + Math.min(4, n.n / 5)}" class="${k === key ? 'mapc on' : 'mapc'}"/><text x="${x}" y="${y + 22}" class="mapt">${esc(lab)}</text></g>`; }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="namemap" role="img" aria-label="Names connected to ${esc(g.nodes.get(key).name)}">${lines}${dots}</svg>
-    <p class="legend"><i class="k you"></i>you said same <i class="k chain"></i>same chain <i class="k text"></i>similar spelling <i class="k rel"></i>related (dashed) · numbers are the link strength (%)</p>`;
+    <p class="legend"><i class="k you"></i>you said same <i class="k chain"></i>same chain <i class="k text"></i>similar spelling · numbers are the link strength (%)</p>`;
 }
 let mapApi = null;
 function mapSheet(key, q = '') {
@@ -699,4 +703,10 @@ function settingsGrouped(html) {
   const by = new Map(SET_GROUPS.map((g) => [g[0], []]));
   for (const sec of secs) { const t = title(sec), g = SET_GROUPS.find((x) => x[3].includes(t)) || SET_GROUPS.find((x) => x[0] === 'adv'); by.get(g[0]).push(sec); }
   return head + SET_GROUPS.filter((g) => by.get(g[0]).length).map(([k, name, desc]) => `<details class="sgroup" data-sgroup="${k}" ${SET_OPEN.has(k) ? 'open' : ''}><summary><b>${name}</b><small>${desc}</small></summary>${by.get(k).join('')}</details>`).join('');
+}
+
+function dailyCard(db) {
+  const d = dailySummary(db); if (!d.d30 || !d.d30.raw) return '';
+  const cell = (l, x) => x ? `<div><span>${l}</span><b>${money(x.avg)}</b><small>typical day ${money(x.median)}${x.trimmed ? ' · ' + x.trimmed + ' big day' + (x.trimmed > 1 ? 's' : '') + ' trimmed' : ''}</small></div>` : `<div><span>${l}</span><b>-</b></div>`;
+  return `<section class="daily" aria-label="Daily spending"><h2>Spending per day</h2><div class="dcols">${cell('Last 7 days', d.d7)}${cell('This month', d.month)}${cell('Last 30 days', d.d30)}</div><p class="hint">Complete days only. Unusually big days are capped so one expensive dinner does not distort your usual day.</p></section>`;
 }
