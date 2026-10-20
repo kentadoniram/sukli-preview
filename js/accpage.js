@@ -4,7 +4,7 @@ import {
   get, commit, uid, stamp, nowStamp, rateFor, fmt, BASE, HOME, homeFx, allCurrencies, curName, CUR, balances, catMap, accountMap, live, groupColor, groupLetter,
   adjustmentCategory, shiftMonth, thisMonth, monthLabel, monthParts, deltaFor, dayLabel,
 } from './core.js';
-import { netWorthCompare, accountHistory, netWorth, cardInfo, cardReminders, cardIcs, isLiability, setLiab, today, postInterest } from './finance.js';
+import { accountHistory, netWorth, cardInfo, cardReminders, cardIcs, isLiability, setLiab, today, postInterest } from './finance.js';
 import { esc, ic, ACT, sheet, toast, download, confirmDialog, promptDialog } from './ui.js';
 import { applyHide } from './appearance.js';
 import { money, eq, hdr, coll, ui } from './screens.js';
@@ -111,10 +111,6 @@ ACT['acct-sp'] = () => toast('Spendable counts cash, bank, e-wallet and card acc
 
 // ---------- net worth ----------
 ACT.nw = () => openNetWorth();
-function nwCompare(db) {
-  const c = netWorthCompare(db), row = (label, k, bad) => `<tr><th>${label}</th>${c.map((x, i) => { const prev = c[i + 1], d = prev ? x[k] - prev[k] : null; return `<td>${money(x[k])}${d == null || Math.abs(d) < 0.5 ? '' : `<small class="${(d > 0) === !bad ? 'pos' : 'neg'}">${d > 0 ? '+' : '-'}${money(Math.abs(d))}</small>`}</td>`; }).join('')}</tr>`;
-  return `<table class="nwcmp"><thead><tr><th></th>${c.map((x, i) => `<th>${i === 0 ? 'Now' : esc(monthLabel(x.label))}</th>`).join('')}</tr></thead><tbody>${row('Assets', 'assets', false)}${row('Liabilities', 'debts', true)}${row('Net worth', 'net', false)}</tbody></table><p class="hint">Month ends, at today's exchange rates. The small figure is the change since the month before it.</p>`;
-}
 function openNetWorth() {
   const s = sheet('<div id="nw"></div>', { title: 'Net worth', wide: true });
   const db = get(), nw = netWorth(db);
@@ -142,7 +138,6 @@ function openNetWorth() {
     <span class="ramt"><b class="${i.base < 0 ? 'neg' : ''}">${money(i.base)}</b>${i.a.cur !== HOME ? `<small>${money(i.v, i.a.cur)}</small>` : ''}</span></button>`;
   s.el.querySelector('#nw').innerHTML = `
     <div class="gdhead"><b class="big ${nw.net < 0 ? 'neg' : ''}">${money(nw.net)}</b><span class="muted">Assets ${money(nw.assets)} − debts ${money(nw.debts)}, in ${BASE} at your current rates.</span></div>
-    ${nwCompare(db)}
     <h3>Last 12 months <small class="muted">(today’s rates · tap a bar)</small></h3>
     <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Net worth at each month end"><line x1="0" x2="${W}" y1="${mid}" y2="${mid}" stroke="var(--rule)"/>${bars}</svg>
     <h3>By kind</h3>${types.map(([k, v]) => `<div class="gbar" data-tip="${esc(`${typeNames[k] || k}: ${money(v)}`)}"><i class="badge sm" style="background:${groupColor(k)}">${groupLetter(typeNames[k] || k)}</i>
@@ -307,6 +302,7 @@ export function openAccount(id) {
       <label class="field"><span>Payment due on day</span><input name="dueDay" inputmode="numeric" value="${a.dueDay || ''}" placeholder="1–31"></label></div>
       <p class="hint">Sukli shows a banner on Home when the payment is near, and can give you calendar reminders (.ics) from the account page.</p></div>
     <div class="field"><span>Interest (optional)</span>
+      <label class="field"><span>Tax on interest (%)</span><input name="taxpct" inputmode="decimal" value="${a.taxPct || ''}" placeholder="e.g. 20.315 (Japan), 20 (Philippines)"></label>
       <div class="two"><label class="amtwrap sm"><input name="apy" inputmode="decimal" value="${a.apy || ''}" placeholder="0" aria-label="Yearly interest percent"><b>% a year</b></label>
       <input name="interestFrom" type="date" value="${esc(a.interestFrom || today())}" aria-label="Start date"></div>
       <small class="hint">For Maya Savings, Binance Earn and the like. Sukli adds one small entry a day (Interest, or Crypto earned for crypto accounts) based on that day’s balance. It is an estimate, so set the rate your app shows.</small></div>
@@ -330,6 +326,7 @@ export function openAccount(id) {
       stmtDay: Math.min(31, Math.max(0, Math.round(num(fd.get('stmtDay')) || 0))),
       dueDay: Math.min(31, Math.max(0, Math.round(num(fd.get('dueDay')) || 0))),
       apy: num(fd.get('apy')) > 0 ? num(fd.get('apy')) : 0,
+      taxPct: num(fd.get('taxpct')) > 0 ? num(fd.get('taxpct')) : 0,
       exchange: (fd.get('exchange') || '').trim(),
       interestFrom: fd.get('interestFrom') || today(),
     };

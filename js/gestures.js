@@ -30,17 +30,11 @@ export function initGestures() {
     if (dx > 60 && dx > dy * 2) { tracking = false; if (ACT.menu) ACT.menu(); }
   }, { passive: true });
 
-  // ---- swipe down or left closes the open sheet. Forms only close from the title bar, so a stray swipe cannot lose what you typed. ----
-  let g = null;
-  document.addEventListener('touchstart', (e) => {
-    const sh = e.target.closest && e.target.closest('.sheet'), t = e.touches[0];
-    g = sh && e.touches.length === 1 ? { x: t.clientX, y: t.clientY, sh, head: !!e.target.closest('.sheet-head'), form: !!sh.querySelector('form'), skip: !!e.target.closest('svg, canvas, input, textarea, select, [data-noswipe], .scrollx, .keypad, .seg') } : null;
-  }, { passive: true });
-  document.addEventListener('touchend', (e) => {
-    const s0 = g; g = null; if (!s0 || s0.skip) return;
-    const t = e.changedTouches[0], dx = t.clientX - s0.x, dy = t.clientY - s0.y, body = s0.sh.querySelector('.sheet-body');
-    const left = dx < -90 && Math.abs(dy) < 50 && !s0.form, down = dy > 110 && Math.abs(dx) < 60 && (s0.head || (!s0.form && body.scrollTop <= 2));
-    if (!left && !down) return;
-    const btns = [...document.querySelectorAll('.scrim [data-close]')], b = btns[btns.length - 1]; if (b) b.click();
-  }, { passive: true });
+  // ---- on-screen keyboard: size sheets to the visible area so the Save bar is never hidden behind it ----
+  const vv = window.visualViewport;
+  if (vv) {
+    const fit = () => { document.documentElement.style.setProperty('--vvh', Math.round(vv.height) + 'px'); };
+    vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+    document.addEventListener('focusin', (e) => { if (e.target.closest && e.target.closest('.sheet')) setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 320); });
+  }
 }

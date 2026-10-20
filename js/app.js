@@ -17,10 +17,12 @@ import { initGestures } from './gestures.js';
 import { bin, autoPurge } from './bin.js';
 import { analytics } from './analytics.js';
 import './scan.js';
+import './compare.js';
 import { commitQuiet } from './core.js';
 
 const routes = { home, ledger, review, accounts, reports, settings, calendar, budget, cashflow, categories, outlook, bin, analytics };
 let lastRoute = null, pending = false;
+const POS = new Map(), NAV = [location.hash]; let wasBack = false;
 
 function firstRun() {
   return `<section class="welcome">
@@ -68,7 +70,7 @@ function render() {
       openAccountSetup();
     } catch (e) { toast(e.message, { ms: 9000 }); }
   };
-  if (route !== lastRoute) { window.scrollTo(0, 0); lastRoute = route; document.title = 'Sukli'; } else window.scrollTo(0, y);
+  if (route !== lastRoute) { window.scrollTo(0, wasBack ? (POS.get(location.hash) || 0) : 0); wasBack = false; lastRoute = route; document.title = 'Sukli'; } else window.scrollTo(0, y);
 }
 // if this month has nothing yet (for example right after importing an older export), open the latest month with data
 export function showLatest() {
@@ -92,7 +94,12 @@ const queue = () => { if (!pending) { pending = true; requestAnimationFrame(rend
   initBackup();
   showLatest();
   subscribe(() => { queue(); scheduleSync(); cloudSchedule(); });
-  window.addEventListener('hashchange', queue);
+  window.addEventListener('hashchange', () => {       // remember where you were on the screen you are leaving; Back puts you there
+    const from = NAV[NAV.length - 1]; POS.set(from, window.scrollY);
+    if (NAV.length > 1 && NAV[NAV.length - 2] === location.hash) { NAV.pop(); wasBack = true; } else NAV.push(location.hash);
+    if (NAV.length > 30) NAV.shift();
+    queue();
+  });
   window.addEventListener('sukli-render', queue);
   window.addEventListener('sukli-latest', () => { showLatest(); queue(); });
   onStatus((s) => { const el = document.getElementById('syncstatus'); if (el) el.textContent = s.text; });

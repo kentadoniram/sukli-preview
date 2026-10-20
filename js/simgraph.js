@@ -8,14 +8,14 @@
 // A new name is attached to the graph and the BEST path to every known name is searched. A path is as strong as the
 // product of its edges, so it is a least-cost path problem with cost = -ln(weight) (Dijkstra). The path is the explanation.
 import { canon, similarity } from './textnorm.js';
-import { norm as plain, merchantKey, isApart, nameRules } from './merchants.js';
+import { norm as plain, merchantKey, isApart, nameRules, relStrength } from './merchants.js';
 
 export const MIN_EDGE = 0.55;       // weaker links are not drawn
 export const MIN_MATCH = 0.6;       // a whole path weaker than this is not used for prediction
 const STOP = new Set(['the', 'and', 'of', 'shop', 'store', 'branch', 'cafe', 'restaurant', 'and', 'co', 'inc']);
 const toks = (k) => k.split(' ').filter((t) => t.length >= 2 && !STOP.has(t));
 
-function textWeight(ka, kb) {
+export function textWeight(ka, kb) {
   const a = toks(ka), b = toks(kb);
   const common = a.filter((t) => b.includes(t)).length;
   const dice = a.length + b.length ? (2 * common) / (a.length + b.length) : 0;
@@ -54,6 +54,8 @@ export function buildGraph(db) {
       const w = textWeight(a, b); if (w >= MIN_EDGE) link(a, b, w, 'text');
     }
   }
+  // pairs you called "related": drawn with the strength you gave, never used to copy a category
+  for (const k of R.related || []) { const [pa, pb] = k.split('|'), a = canon(pa), b = canon(pb); if (nodes.has(a) && nodes.has(b)) link(a, b, relStrength(pa, pb) || 0.6, 'related'); }
   // chains and your own "Same" answers
   const byRule = new Map();
   for (const e of nodes.values()) {
@@ -95,7 +97,7 @@ export function matches(g, name, limit = 3) {
     if (u === null || Math.exp(-best.get(u).c) < MIN_MATCH) break;
     done.add(u);
     for (const x of g.adj.get(u) || []) {
-      if (done.has(x.to)) continue;
+      if (done.has(x.to) || x.type === 'related') continue;          // related = own category: not a way to a match
       const c = best.get(u).c - Math.log(x.w);
       if (!best.has(x.to) || c < best.get(x.to).c) best.set(x.to, { c, prev: u, e: { from: u, to: x.to, w: x.w, type: x.type } });
     }
@@ -111,7 +113,7 @@ export function matches(g, name, limit = 3) {
 
 export const makeResolver = (g) => (name) => { const m = matches(g, name, 1)[0]; return m ? { key: m.key, score: m.score, path: m.path } : null; };
 
-const WHY = { you: 'you said same', chain: 'same chain', text: 'similar spelling', same: 'same name' };
+const WHY = { you: 'you said same', chain: 'same chain', text: 'similar spelling', same: 'same name', related: 'you said related' };
 export const edgeText = (e) => `${Math.round(e.w * 100)}% ${WHY[e.type] || e.type}`;
 // "mang inasal antipolo → mang inasal tagaytay (67% similar spelling) → mang inasal (100% you said same)"
 export const explain = (m) => (m ? [m.path[0].from, ...m.path.map((e) => `${e.to} (${edgeText(e)})`)].join(' → ') : '');

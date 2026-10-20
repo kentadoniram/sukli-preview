@@ -5,6 +5,7 @@ import {
 } from './core.js';
 import { buildGraph, makeResolver, explain } from './simgraph.js';
 import { nameRules } from './merchants.js';
+import { compareCard, relatedNames } from './compare.js';
 import { buildModel, predict, suggest, lookup, catCandidates, byAmount, recentNames } from './predict.js';
 import { evalExpr, isExpr, tidy } from './calc.js';
 import { predictFee, safetyCheck, typeGroupName, typeGroupOrder, transferHints } from './finance.js';
@@ -91,6 +92,19 @@ function catOptions(sel, kind) {
       `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</optgroup>`).join('');
 }
 
+// a blank label becomes "BDO - CIMB" for a transfer; for anything else the most likely label from your history,
+// and if there is none the category name, with the entry put in Review so you can add the details later
+function guessLabel(db, kind, catId, acctId, amount) {
+  const by = new Map();
+  for (const t of db.txs) if (!t.deleted && t.kind === kind && t.cat === catId && t.name && t.name.trim()) {
+    const k = t.name.trim().toLowerCase(), e = by.get(k) || { name: t.name.trim(), n: 0, near: 0 }; e.n++;
+    if (t.acct === acctId) e.near += 0.5; if (amount > 0 && Math.abs(t.amount - amount) <= amount * 0.3) e.near += 1; by.set(k, e);
+  }
+  const best = [...by.values()].sort((a, b) => (b.n + b.near) - (a.n + a.near))[0];
+  if (best && (best.n >= 2 || best.near >= 1)) return { label: best.name, weak: false };
+  const c = db.categories.find((x) => x.id === catId);
+  return { label: c ? c.name : '', weak: true };
+}
 export function openEntry(opts = {}) {
   const db = get();
   const existing = opts.id ? db.txs.find((t) => t.id === opts.id) : null;
@@ -109,7 +123,7 @@ export function openEntry(opts = {}) {
       <input id="f-name" autocomplete="off" value="${esc(f.name)}" placeholder="e.g. Life Tsukagoshi, bus, salary" ${existing ? '' : 'autofocus'}>
       <div id="sugg" class="sugg" hidden></div></div>
     <div class="field amount" id="amountbox"><span class="amtlabel">Amount <button type="button" class="linkbtn eye" data-e="eye" aria-label="Hide or show amounts">${priv.on ? 'Show' : 'Hide'} amounts</button></span>
-      <div class="amtrow"><div class="amtwrap"><input id="f-amount" inputmode="${f.calc ? 'none' : 'decimal'}" autocomplete="off" placeholder="0" value="${esc(commasOn() ? withCommas(f.amount) : f.amount)}"><button type="button" class="amtclear" data-e="amtclear" aria-label="Clear amount">×</button><button type="button" class="calcbtn" data-e="calc" aria-label="Calculator" aria-pressed="false" title="Calculator">${ic('calc')}</button></div><span id="curwrap" class="curwrap"></span></div>
+      <div class="amtrow"><div class="amtwrap"><input id="f-amount" inputmode="${f.calc ? 'none' : 'decimal'}" autocomplete="off" placeholder="0" value="${esc(commasOn() ? withCommas(f.amount) : f.amount)}"><button type="button" class="calcbtn" data-e="calc" aria-label="Calculator" aria-pressed="false" title="Calculator">${ic('calc')}</button></div><span id="curwrap" class="curwrap"></span></div>
       <div id="calcres" class="calcres" hidden></div><div id="keypad" class="keypad" hidden></div></div>
     <div id="fxline"></div>
     <div id="acctrow"></div>
@@ -385,7 +399,8 @@ export function openEntry(opts = {}) {
     let el = form.querySelector('#namehelp');
     if (!el) { const nf = $f('namefield'); if (!nf) return; el = document.createElement('div'); el.id = 'namehelp'; el.className = 'namehelp'; nf.after(el); }
     const c = f.kind === 'transfer' ? [] : similarNames(get(), f.name, 1);
-    el.innerHTML = c.map((x) => `<div class="nmcard"><span>How does this compare with <b>${esc(x.name)}</b>${x.category ? ` (${esc(x.category)})` : ''}?<small class="nmhint">Related = same family, own category (coffee beans, coffee matcha)</small></span><span class="nmbtns"><button type="button" class="btn sm" data-act="nm-same" title="Exactly the same thing" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Same thing</button><button type="button" class="btn sm ghost" data-act="nm-rel" data-a="${esc(f.name)}" data-b="${esc(x.name)}" title="Same family, but its own category">Related</button><button type="button" class="btn sm ghost" data-act="nm-diff" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Different</button></span></div>`).join('');
+    const rel = f.kind === 'transfer' || !f.name.trim() ? [] : relatedNames(get(), f.name).slice(0, 2);
+    el.innerHTML = c.map((x) => compareCard(get(), f.name.trim(), x.name)).join('') + (c.length ? '' : rel.map((x) => `<p class="relhint muted">Related to <b>${esc(x.name)}</b>${x.cat ? ` (${esc(x.cat)})` : ''}, ${Math.round(x.w * 100)}% close. It keeps its own category.</p>`).join(''));
   }
   function applyPick(name) {
     f.name = name; $f('f-name').value = name;
@@ -496,7 +511,6 @@ export function openEntry(opts = {}) {
         arrange(); renderSeg(); renderFreq(); renderAccts(); renderFx(); refreshPred(); renderCats(); renderItems(); renderSugg(); renderSafety(); break;
       case 'qtab': f.qtab = v; f.qtabManual = true; renderFreq(); break;
       case 'pick': applyPick(v); break;
-      case 'amtclear': { const inp = $f('f-amount'); inp.value = ''; inp.classList.remove('guess'); inp.dispatchEvent(new Event('input', { bubbles: true })); inp.focus(); break; }
       case 'acctpick': { const to = b.dataset.which === 'to', sel = $f(to ? 'f-to' : 'f-acct'), a = acctOf(f.acct);
         openAccountPicker({ selected: sel.value, skip: to ? f.acct : (f.kind === 'transfer' ? f.toAcct : ''), cur: to ? '' : (a && a.cur) || '', title: to ? 'To account' : f.kind === 'transfer' ? 'From account' : 'Account' }, (id) => { sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true })); }); break; }
       case 'curpick': openCurrencyPicker((c) => { const sel = $f('f-cur'); if (![...sel.options].some((o) => o.value === c)) sel.add(new Option(c, c)); sel.value = c; sel.dispatchEvent(new Event('change', { bubbles: true })); }, { title: 'Currency' }); break;
@@ -599,7 +613,13 @@ export function openEntry(opts = {}) {
       items = f.items.filter((i) => i.n.trim() || num(i.amt)).map((i) => ({ n: i.n.trim(), amt: num(i.amt) || 0, cat: i.cat || '' }));
       if (items.length && Math.abs(items.reduce((s2, i) => s2 + i.amt, 0) - amount) >= 0.01) flag = 'review';
     }
-    const rec = { kind: f.kind, amount, cur: a.cur, fx, date: f.date, name: f.name.trim(), cat, acct: a.id,
+    let label = f.name.trim(), autoLabel = '';
+    if (!label) {
+      const dbx = get(), toName = (dbx.accounts.find((x) => x.id === f.toAcct) || {}).name || '';
+      if (f.kind === 'transfer') { label = `${a.name}${toName ? ' - ' + toName : ''}`; autoLabel = 'transfer'; }
+      else { const g = guessLabel(dbx, f.kind, cat, a.id, amount); label = g.label; autoLabel = g.weak ? 'weak' : 'history'; if (g.weak) flag = 'review'; }
+    }
+    const rec = { kind: f.kind, amount, cur: a.cur, fx, date: f.date, name: label, cat, acct: a.id,
       toAcct: f.kind === 'transfer' ? f.toAcct : '', toAmount, fee, feeBy: fee ? f.feeBy : '', feeFx, feeCur, notes: f.notes.trim(), items: items && items.length ? items : [], flag };
     if (f.kind !== 'transfer' && cat && ((f.catTouched && f.guessed && f.guessed !== cat) || (existing && existing.cat && existing.cat !== cat) || (existing && existing.corrected))) rec.corrected = true;
     let savedAs;
@@ -613,7 +633,7 @@ export function openEntry(opts = {}) {
       d.settings.lastAcct = a.id;
     });
     s.close();
-    toast(rec.flag === 'review' ? 'Saved. It is in Review so you can confirm the category later.' : 'Saved');
+    toast(autoLabel === 'weak' ? 'Saved without a label. It is in Review so you can add the details later.' : rec.flag === 'review' ? 'Saved. It is in Review so you can confirm the category later.' : autoLabel ? `Saved as “${rec.name}”` : 'Saved');
     if (again) openEntry({ preset: { acct: a.id } });
   }
 

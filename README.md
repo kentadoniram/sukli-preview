@@ -1,6 +1,33 @@
+## What's new in v14.1
+
+- **Version** shown at the bottom of Settings. Edit `js/version.js` (major, fresh, base, date) to change it.
+- **Blank label is filled in on save:** a transfer becomes "BDO - CIMB"; other entries get the most likely label from your history, and if there is none the category name, with the entry put in Review.
+- **Save button above the Android keyboard** (sheets follow the visible area).
+- **Back returns to where you were** on the screen, for example Home after Next month outlook.
+- **Transfer amounts have their own colour.**
+- **Daily spending bars** (last 30 days) under the rolling 7-day average.
+- **Tax on bank interest:** account setting "Tax on interest (%)"; interest is posted after tax.
+
+## What's new in v14
+
+- **Home "Per day" is now a rolling 7-day average:** the total of the last 7 complete calendar days (ending yesterday), zero days included, divided by 7. It moves forward one day at a time and does not care which weekday the window starts on. Before, it was month-to-date spending divided by the days elapsed in the calendar month.
+- **Rolling 7-day average, last 12 months** (Home): a line of the rolling average for every day, your usual (median), the middle half of weeks, how far you are from usual now, last 3 months vs before, and a monthly trend only when the evidence is real.
+
+## What's new in v13 (receipts)
+
+- **Discounts belong to their item:** a negative line (シール割引 -90) is taken off the item above it, so each item shows what you actually paid for it. A discount printed before any item is spread over the items.
+- **Tax:** tax printed on top of the prices (外8% ¥55) is spread over the items in proportion to what each cost after discount, so the item prices add up to exactly what you paid (754, not 699). If the tax line is unreadable the 8%/10% mark on the receipt is used.
+- **支払合計 (total payment)** is the primary reference for the total. Other readings (合計 line, subtotal plus tax, payment line) only confirm it; a total smaller than the subtotal is rejected.
+- **Each item gets its own category** (your history first, then keyword rules in Japanese and English matched to your category names). Items it cannot place stay unassigned. Discounts and tax are never categories of their own.
+
 # Sukli (working title)
 
 A private money tracker that runs entirely in the browser. Your data stays on your device, with an optional backup to a hidden folder in your own Google Drive. No server, no subscription, no AI service: the category guesser is a small model that learns from your own entries and runs on the phone.
+
+## What's new in v11
+
+- **Comparing two names, rebuilt.** The card now shows what Sukli knows about each name (times used, usual category, typical amount, last used), why it thinks they look alike (spelling %, shared words) and three answers with their consequences: **Same** (one thing, guesses are shared), **Related** (same family but its own category, for example coffee beans and coffee matcha; pick *A little / Somewhat / Nearly the same*, stored as 30 / 60 / 85%), **Different** (never compared again). Related pairs never copy a category; they appear as a quiet hint when you type one of the names, in Settings with their closeness, and as dashed links in the Name map.
+- **Receipts, tuned on your four photos** (LIFE and three cisca): sideways photos are turned upright by a small trial read; two readings are merged by arithmetic (items, tax and total must add up); digit look-alikes (O/0, l/1) and trailing junk are cleaned; shops are remembered by phone number or invoice number (T + 13 digits), so the next receipt from the same shop is recognised even if the name is misread. Item names that cannot be read show as "(unclear, type the name)" instead of wrong text.
 
 ## What's new in v9 (name graph, receipt scanner)
 
@@ -8,19 +35,6 @@ A private money tracker that runs entirely in the browser. Your data stays on yo
 - **Better name matching** (kana/width/branch/receipt-code clean-up, typo matching) and **faster learning from corrections**: a category you change by hand counts three times in the model.
 - **Receipt scanner** (Menu, Scan a receipt): take or choose a photo; Japanese and English text is read on the device (Tesseract, bundled in `vendor/ocr`, about 9 MB, works offline, nothing uploaded). It finds the shop, date and time, total and item lines (quantity lines, discounts, 軽 marks, tax on top or included), matches the shop to a name in your history, guesses the category, and shows a confidence for each field. A cross-check tells you whether the items add up to the total. You correct anything, then **Continue to entry** to pick the account and save. Or paste receipt text instead of a photo.
   - Limits: confidence is a guide, not a probability; small, blurry or crumpled thermal prints lose digits (the 軽 mark is often read as 8; this is repaired only when it makes the receipt add up); Japanese item names are the least reliable part.
-
-## What's new in v12
-
-- **Receipts keep the per-item prices.** Stray marks after a price ("¥249 ¢") are ignored, letters read as digits ("¥I0") are tidied, the item prices are checked against the printed subtotal (or total minus tax), and a single unreadable price is worked out from that subtotal. On the LIFE receipt: 6 lines that add up to the 699 subtotal. If the prices cannot be verified the app still keeps one correct total line.
-- The second reading pass only runs when the first one does not add up, so clear receipts finish faster.
-
-## What's new in v11
-
-- **Swipe to close:** swipe down or left on a detail view to close it. Forms (new entry, new account) only close by swiping down from the title bar, so a stray swipe cannot lose what you typed. Charts, text boxes and scrolling rows are left alone.
-- **Home: spending per day** for the last 7 days, this month and the last 30 days. Complete days only, zero-spend days counted; unusually big days are capped so one expensive dinner does not distort the figure, and the card says when that happened.
-- **Net worth: assets, liabilities and net worth** for now, last month-end and two months ago, with the change from the month before.
-- **Amount: a clear (x) button** inside the amount field.
-- **Receipts:** a total can no longer be smaller than the subtotal (LIFE: a lost digit gave 54 instead of 754), tax is worked out from the taxable amount, ID and registration numbers are never amounts or items, and an item needs a real name.
 
 ## What's new in v10
 

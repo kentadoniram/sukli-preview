@@ -21,8 +21,10 @@ import { fetchRates, ratesStatus, RATE_CREDIT, hasLive } from './rates.js';
 import { liveRate, curName, rateFor as rateFor2 } from './core.js';
 export { accounts };
 import { esc, ic, ACT, sheet, toast, confirmDialog, promptDialog, download } from './ui.js';
-import { dailySummary } from './finance.js';
+import { rollingSummary } from './insights.js';
+import { versionLabel } from './version.js';
 import { nameRules, similarPairs, learnSame, learnApart, learnRelated, forget } from './merchants.js';
+import { compareCard } from './compare.js';
 import { buildGraph, clusters, neighbourhood, matches, explain, edgeText } from './simgraph.js';
 
 export const ui = { month: thisMonth(), q: '', filter: 'all', acct: '', limit: 120, by: 'group', collapsed: (() => { try { return JSON.parse(localStorage.getItem('sukli-coll') || '{}'); } catch { return {}; } })() };
@@ -114,7 +116,6 @@ export function home(db) {
   const ins = insights(db, ui.month);
   return `${monthNav()}
     ${strip(st)}
-    ${dailyCard(db)}
     <section class="spendable"><div><span>Spendable now</span><b>${money(sp.total)}</b></div><div class="curs">${chips || '<span class="muted">No balances yet</span>'}</div>
       ${sp.missing.length ? `<p class="hint">Not counted: ${sp.missing.join(', ')} (set a rate in Settings).</p>` : ''}</section>
     ${reminderBanner(db)}
@@ -153,10 +154,11 @@ function paceCard(db) {
       <circle cx="${X(last).toFixed(1)}" cy="${Y(p.cur[last]).toFixed(1)}" r="3.5" fill="var(--line)"/></svg>
     <p class="legend"><i class="k lineb"></i>${esc(monthLabel(ui.month).split(' ')[0])} <i class="k bar"></i>${esc(monthLabel(p.prevYm).split(' ')[0])}${p.live ? ' <i class="k dash"></i>at this pace' : ''}</p>
     <div class="facts">
-      <div><span>Per day</span><b>${R(p.dailyAvg)}</b></div>
+      <div><span>Per day (last 7 days)</span><b>${R(rollingNow(p.dailyAvg))}</b></div>
       <div><span>${p.live ? 'By month end' : 'Month total'}</span><b>${R(p.live ? p.projected : p.spent)}</b></div>
       ${cmp || `<div><span>Same day last month</span><b>${R(p.prevSame)}</b></div>`}
-    </div>`);
+    </div>
+    ${rollingCard(p)}`);
 }
 
 export function trendChart(list, sel, n, click = true) {
@@ -430,7 +432,7 @@ export function settings(db) {
       <button type="button" class="btn ghost wide" data-act="nm-review">Review similar names</button>
       <button type="button" class="btn ghost wide" data-act="nm-map">Name map (how names connect)</button>
       ${[...groups.entries()].map(([k, as]) => `<div class="nmgroup"><b>${esc(k)}</b><div>${as.filter((a) => a !== k).map((a) => `<span class="chip">${esc(a)} <button type="button" class="x" data-act="nm-forget" data-kind="same" data-v="${esc(a)}" aria-label="Unlink ${esc(a)}">×</button></span>`).join('') || '<small class="muted">only itself</small>'}</div></div>`).join('')}
-      ${(r.related || []).length ? `<h3>Related (same family, separate)</h3>${r.related.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ~  '))}</span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="related" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}
+      ${(r.related || []).length ? `<h3>Related (same family, separate)</h3>${r.related.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ~  '))} <small class="muted">${Math.round(((r.relw || {})[k] ?? 0.6) * 100)}% close</small></span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="related" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}
       ${r.apart.length ? `<h3>Kept apart</h3>${r.apart.map((k) => `<div class="nmgroup"><span>${esc(k.replace('|', '  ≠  '))}</span><button type="button" class="btn sm ghost" data-act="nm-forget" data-kind="apart" data-v="${esc(k)}">Undo</button></div>`).join('')}` : ''}</section>`; })()}
     ${(() => { const st = db.settings, custom = st.customTypes || {}, n = (k) => db.accounts.filter((a) => !a.deleted && a.type === k).length;
       return `<section id="atypes"><h2>Account types</h2><p class="hint">Rename any type, or add your own, for example "Money owed to me" or "Savings pot". Choose whether a new type is something you have or something you owe.</p>
@@ -646,24 +648,21 @@ document.addEventListener('change', (e) => {
   commit((d) => { d.settings.typeLabels = { ...(d.settings.typeLabels || {}), [k]: v }; });
 });
 
-ACT['nm-same'] = (el) => { commitQuiet((d) => learnSame(d, el.dataset.a, el.dataset.b)); toast(`Counted as the same place or item.`, { ms: 3000 }); el.closest('.nmcard')?.remove(); };
-ACT['nm-rel'] = (el) => { commitQuiet((d) => learnRelated(d, el.dataset.a, el.dataset.b)); toast('Marked as related: same family, kept separate.', { ms: 3000 }); el.closest('.nmcard')?.remove(); };
-ACT['nm-diff'] = (el) => { commitQuiet((d) => learnApart(d, el.dataset.a, el.dataset.b)); toast(`Kept as different things.`, { ms: 3000 }); el.closest('.nmcard')?.remove(); };
 ACT['nm-forget'] = (el) => { commit((d) => forget(d, el.dataset.kind, el.dataset.v)); };
 ACT['nm-review'] = () => {
-  const pairs = similarPairs(get());
-  sheet(`<p class="hint">Names that start the same way. Tell Sukli which are the same.</p>${pairs.length ? pairs.map((x) => `<div class="nmcard"><span><b>${esc(x.a)}</b> and <b>${esc(x.b)}</b></span><span class="nmbtns"><button type="button" class="btn sm" data-act="nm-same" title="Exactly the same thing" data-a="${esc(x.a)}" data-b="${esc(x.b)}">Same thing</button><button type="button" class="btn sm ghost" data-act="nm-rel" data-a="${esc(x.a)}" data-b="${esc(x.b)}" title="Same family, but its own category">Related</button><button type="button" class="btn sm ghost" data-act="nm-diff" data-a="${esc(x.a)}" data-b="${esc(x.b)}">Different</button></span></div>`).join('') : '<p class="empty">Nothing to review. All similar names are decided.</p>'}`, { title: 'Review similar names' });
+  const db = get(), pairs = similarPairs(db);
+  sheet(`<p class="hint">Names that start the same way. For each pair choose Same, Related or Different.</p>${pairs.length ? pairs.map((x) => compareCard(db, x.a, x.b)).join('') : '<p class="empty">Nothing to review. All similar names are decided.</p>'}`, { title: 'Review similar names' });
 };
 
 // ---- name map: the similarity graph, drawn ----
 function mapSvg(g, key) {
   const nb = neighbourhood(g, key), W = 340, H = 300, cx = W / 2, cy = H / 2, r = 108, pos = new Map();
   nb.keys.forEach((k, i) => { if (i === 0) pos.set(k, [cx, cy]); else { const a = ((i - 1) / Math.max(1, nb.keys.length - 1)) * Math.PI * 2 - Math.PI / 2; pos.set(k, [cx + r * Math.cos(a), cy + r * Math.sin(a)]); } });
-  const col = { you: 'var(--ok, #2a8a4a)', chain: 'var(--accent, #3a6ee8)', text: 'var(--muted, #888)' };
-  const lines = nb.edges.map((e) => { const [x1, y1] = pos.get(e.a), [x2, y2] = pos.get(e.b); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col[e.type]}" stroke-width="${(1 + e.w * 4).toFixed(1)}" stroke-opacity="${(0.35 + e.w * 0.6).toFixed(2)}"/><text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2}" class="mapw">${Math.round(e.w * 100)}</text>`; }).join('');
+  const col = { you: 'var(--ok, #2a8a4a)', chain: 'var(--accent, #3a6ee8)', text: 'var(--muted, #888)', related: 'var(--warn, #c9871a)' };
+  const lines = nb.edges.map((e) => { const [x1, y1] = pos.get(e.a), [x2, y2] = pos.get(e.b); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col[e.type]}" stroke-width="${(1 + e.w * 4).toFixed(1)}" ${e.type === 'related' ? 'stroke-dasharray="5 4"' : ''} stroke-opacity="${(0.35 + e.w * 0.6).toFixed(2)}"/><text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2}" class="mapw">${Math.round(e.w * 100)}</text>`; }).join('');
   const dots = nb.keys.map((k) => { const [x, y] = pos.get(k), n = g.nodes.get(k), lab = n.name.length > 16 ? n.name.slice(0, 15) + '…' : n.name; return `<g><circle cx="${x}" cy="${y}" r="${k === key ? 9 : 6 + Math.min(4, n.n / 5)}" class="${k === key ? 'mapc on' : 'mapc'}"/><text x="${x}" y="${y + 22}" class="mapt">${esc(lab)}</text></g>`; }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="namemap" role="img" aria-label="Names connected to ${esc(g.nodes.get(key).name)}">${lines}${dots}</svg>
-    <p class="legend"><i class="k you"></i>you said same <i class="k chain"></i>same chain <i class="k text"></i>similar spelling · numbers are the link strength (%)</p>`;
+    <p class="legend"><i class="k you"></i>you said same <i class="k chain"></i>same chain <i class="k text"></i>similar spelling <i class="k rel"></i>related (dashed) · numbers are the link strength (%)</p>`;
 }
 let mapApi = null;
 function mapSheet(key, q = '') {
@@ -702,11 +701,22 @@ function settingsGrouped(html) {
   const title = (x) => ((x.match(/<h2>([^<]*)<\/h2>/) || [])[1] || '').trim();
   const by = new Map(SET_GROUPS.map((g) => [g[0], []]));
   for (const sec of secs) { const t = title(sec), g = SET_GROUPS.find((x) => x[3].includes(t)) || SET_GROUPS.find((x) => x[0] === 'adv'); by.get(g[0]).push(sec); }
-  return head + SET_GROUPS.filter((g) => by.get(g[0]).length).map(([k, name, desc]) => `<details class="sgroup" data-sgroup="${k}" ${SET_OPEN.has(k) ? 'open' : ''}><summary><b>${name}</b><small>${desc}</small></summary>${by.get(k).join('')}</details>`).join('');
+  return head + SET_GROUPS.filter((g) => by.get(g[0]).length).map(([k, name, desc]) => `<details class="sgroup" data-sgroup="${k}" ${SET_OPEN.has(k) ? 'open' : ''}><summary><b>${name}</b><small>${desc}</small></summary>${by.get(k).join('')}</details>`).join('') + `<p class="version">${versionLabel()}</p>`;
 }
 
-function dailyCard(db) {
-  const d = dailySummary(db); if (!d.d30 || !d.d30.raw) return '';
-  const cell = (l, x) => x ? `<div><span>${l}</span><b>${money(x.avg)}</b><small>typical day ${money(x.median)}${x.trimmed ? ' · ' + x.trimmed + ' big day' + (x.trimmed > 1 ? 's' : '') + ' trimmed' : ''}</small></div>` : `<div><span>${l}</span><b>-</b></div>`;
-  return `<section class="daily" aria-label="Daily spending"><h2>Spending per day</h2><div class="dcols">${cell('Last 7 days', d.d7)}${cell('This month', d.month)}${cell('Last 30 days', d.d30)}</div><p class="hint">Complete days only. Unusually big days are capped so one expensive dinner does not distort your usual day.</p></section>`;
+const rollingNow = (fallback) => { const r = rollingSummary(get()); return r.current ? r.current.avg : fallback; };
+function rollingCard(p) {
+  const r = rollingSummary(get()), mm = (m) => monthLabel(m).split(' ')[0];
+  if (!r.current) return '';
+  if (!r.enough) return `<p class="hint">Per day uses the last 7 complete days (zero days included). A 12-month history appears after about two weeks of entries. This month so far: ${R(p.dailyAvg)} a day.</p>`;
+  const W = 320, H = 110, v = r.series.map((x) => x.avg), top = Math.max(...v, r.hi) * 1.08 || 1, X = (i) => (i / (v.length - 1)) * W, Y = (a) => H - 6 - (a / top) * (H - 14);
+  const path = v.map((a, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(a).toFixed(1)}`).join(''), diff = r.typical ? (r.current.avg - r.typical) / r.typical : 0;
+  const ticks = []; let last = ''; r.series.forEach((x, i) => { const m = x.date.slice(0, 7); if (m !== last && i > 8 && i < v.length - 8) ticks.push(`<text x="${X(i).toFixed(0)}" y="${H + 12}" font-size="9" fill="currentColor" text-anchor="middle">${esc(mm(m))}</text>`); last = m; });
+  const tr = r.trend && r.trend.conf !== 'none' && r.trend.conf !== 'low' ? ` The monthly trend is ${r.trend.dir === 'up' ? 'rising' : 'falling'} (${r.trend.conf} confidence).` : ' No clear trend in the monthly averages.';
+  const chg = r.earlier ? `Last 3 months: ${R(r.recent)} a day, against ${R(r.earlier)} before that.` : '';
+  return `<div class="rollcard"><h3>Rolling 7-day average, last 12 months</h3>
+    <p><b>${R(r.current.avg)}</b> a day over the 7 days to ${esc(r.end)} (${R(r.current.total)} in total). Your usual is ${R(r.typical)}; half of all weeks sit between ${R(r.lo)} and ${R(r.hi)}.${Math.abs(diff) >= 0.1 ? ` Right now you are ${Math.round(Math.abs(diff) * 100)}% ${diff > 0 ? 'above' : 'below'} usual.` : ' Right now you are close to usual.'}</p>
+    <svg viewBox="0 0 ${W} ${H + 16}" class="chart" role="img" aria-label="Rolling 7-day average spending per day over 12 months"><rect x="0" y="${Y(r.hi).toFixed(1)}" width="${W}" height="${(Y(r.lo) - Y(r.hi)).toFixed(1)}" fill="var(--line)" opacity=".12"/><line x1="0" x2="${W}" y1="${Y(r.typical).toFixed(1)}" y2="${Y(r.typical).toFixed(1)}" stroke="var(--ink2)" stroke-dasharray="4 3" stroke-width="1"/><path d="${path}" fill="none" stroke="var(--line)" stroke-width="2" stroke-linejoin="round"/>${ticks.join('')}</svg>
+    ${(() => { const mx = Math.max(...r.daily.map((d) => d.v), 1), bw = W / 30; return `<h3 class="dailyh">Daily spending, last 30 days</h3><svg viewBox="0 0 ${W} 74" class="chart" role="img" aria-label="Daily spending, last 30 days">${r.daily.map((d, i) => `<rect x="${(i * bw + 1).toFixed(1)}" y="${(58 - (d.v / mx) * 54).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${Math.max(1, (d.v / mx) * 54).toFixed(1)}" rx="2" fill="${d.v > r.typical * 2 ? 'var(--bad, #d9534f)' : 'var(--line)'}" opacity="${d.v ? 1 : 0.25}"><title>${esc(d.date)}: ${R(d.v)}</title></rect>`).join('')}${r.daily.map((d, i) => (i % 7 === 0 ? `<text x="${(i * bw + bw / 2).toFixed(0)}" y="71" font-size="9" fill="currentColor" text-anchor="middle">${esc(d.date.slice(5))}</text>` : '')).join('')}</svg>`; })()}
+    <p class="hint">Each point is the total of 7 consecutive days ending that day, divided by 7, zero days included. The dashed line is your usual (median); the band is the middle half. ${chg}${tr}</p></div>`;
 }

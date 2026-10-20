@@ -1,5 +1,6 @@
 // Home-screen analysis. Plain maths over your own entries, all in base currency, nothing leaves the device.
-import { monthParts, shiftMonth, thisMonth, nowStamp, daysInMonth, fmt, HOME } from './core.js';
+import { monthParts, partsBetween, shiftMonth, thisMonth, nowStamp, daysInMonth, fmt, HOME } from './core.js';
+import { quantile, trend as lineTrend } from './stats.js';
 
 const sum = (a) => a.reduce((s, x) => s + x, 0);
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
@@ -127,4 +128,32 @@ export function groupTrend(db, ym, group, kind, n = 6) {
     out.push({ m, v: sum(monthParts(db, m).filter((p) => p.kind === kind && p.group === group).map((p) => p.v)) });
   }
   return out;
+}
+
+// ---------- rolling daily average ----------
+const addD = (d, n) => { const [y, m, dd] = d.split('-').map(Number), x = new Date(y, m - 1, dd + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+// spending per calendar day; days with nothing are simply absent (read as zero)
+function dailyMap(db, from, to) { const m = new Map(); for (const p of partsBetween(db, from, to)) if (p.kind === 'expense') { const d = p.t.date.slice(0, 10); m.set(d, (m.get(d) || 0) + p.v); } return m; }
+// For every day: the total of the 7 consecutive calendar days ending that day, divided by 7. Zero-spend days count as zero.
+// It does not matter which weekday the window starts on, so Mon-Sun, Tue-Mon and Wed-Tue are all just successive windows.
+export function rollingAverages(db, end, days = 365, win = 7) {
+  const n = days + win - 1, map = dailyMap(db, addD(end, -(n - 1)), end), vals = [];
+  for (let i = n - 1; i >= 0; i--) vals.push(map.get(addD(end, -i)) || 0);
+  const out = []; let s = 0;
+  for (let i = 0; i < n; i++) { s += vals[i]; if (i >= win) s -= vals[i - win]; if (i >= win - 1) out.push({ date: addD(end, -(n - 1 - i)), avg: s / win, total: s }); }
+  return out;
+}
+// Today is not finished, so the window ends yesterday. Windows that start before your first expense are left out.
+export function rollingSummary(db, now = nowStamp().slice(0, 10)) {
+  const end = addD(now, -1), all = rollingAverages(db, end, 365, 7);
+  let first = null; for (const t of db.txs) if (!t.deleted && t.kind === 'expense' && (!first || t.date < first)) first = t.date;
+  const f = first ? first.slice(0, 10) : end, series = all.filter((x) => addD(x.date, -6) >= f);
+  if (series.length < 14) return { end, series, enough: false, current: series.length ? series[series.length - 1] : null };
+  const vals = series.map((x) => x.avg), by = new Map();
+  for (const x of series) { const m = x.date.slice(0, 7), e = by.get(m) || { m, sum: 0, n: 0 }; e.sum += x.avg; e.n++; by.set(m, e); }
+  const months = [...by.values()].map((e) => ({ m: e.m, avg: e.sum / e.n, n: e.n })), mv = months.filter((e) => e.n >= 20).map((e) => e.avg);
+  const recent = mv.slice(-3), earlier = mv.slice(0, -3);
+  const dm = dailyMap(db, addD(end, -29), end), daily = Array.from({ length: 30 }, (_, i) => { const d = addD(end, -(29 - i)); return { date: d, v: dm.get(d) || 0 }; });
+  return { end, series, daily, enough: true, current: series[series.length - 1], typical: median(vals), lo: quantile(vals, 0.25), hi: quantile(vals, 0.75), months,
+    recent: recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null, earlier: earlier.length ? earlier.reduce((a, b) => a + b, 0) / earlier.length : null, trend: lineTrend(mv) };
 }
