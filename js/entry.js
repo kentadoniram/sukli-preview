@@ -5,6 +5,7 @@ import {
 } from './core.js';
 import { buildGraph, makeResolver, explain } from './simgraph.js';
 import { nameRules } from './merchants.js';
+import { compareCard, relatedNames } from './compare.js';
 import { buildModel, predict, suggest, lookup, catCandidates, byAmount, recentNames } from './predict.js';
 import { evalExpr, isExpr, tidy } from './calc.js';
 import { predictFee, safetyCheck, typeGroupName, typeGroupOrder, transferHints } from './finance.js';
@@ -385,7 +386,8 @@ export function openEntry(opts = {}) {
     let el = form.querySelector('#namehelp');
     if (!el) { const nf = $f('namefield'); if (!nf) return; el = document.createElement('div'); el.id = 'namehelp'; el.className = 'namehelp'; nf.after(el); }
     const c = f.kind === 'transfer' ? [] : similarNames(get(), f.name, 1);
-    el.innerHTML = c.map((x) => `<div class="nmcard"><span>How does this compare with <b>${esc(x.name)}</b>${x.category ? ` (${esc(x.category)})` : ''}?<small class="nmhint">Related = same family, own category (coffee beans, coffee matcha)</small></span><span class="nmbtns"><button type="button" class="btn sm" data-act="nm-same" title="Exactly the same thing" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Same thing</button><button type="button" class="btn sm ghost" data-act="nm-rel" data-a="${esc(f.name)}" data-b="${esc(x.name)}" title="Same family, but its own category">Related</button><button type="button" class="btn sm ghost" data-act="nm-diff" data-a="${esc(f.name)}" data-b="${esc(x.name)}">Different</button></span></div>`).join('');
+    const rel = f.kind === 'transfer' || !f.name.trim() ? [] : relatedNames(get(), f.name).slice(0, 2);
+    el.innerHTML = c.map((x) => compareCard(get(), f.name.trim(), x.name)).join('') + (c.length ? '' : rel.map((x) => `<p class="relhint muted">Related to <b>${esc(x.name)}</b>${x.cat ? ` (${esc(x.cat)})` : ''}, ${Math.round(x.w * 100)}% close. It keeps its own category.</p>`).join(''));
   }
   function applyPick(name) {
     f.name = name; $f('f-name').value = name;

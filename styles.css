@@ -579,3 +579,10 @@ img.rcpt { width: 100%; max-height: 180px; object-fit: contain; border-radius: 1
 .sgroup[open] > summary::after { content: "▴"; }
 .sgroup > section { padding: 0 16px 12px; border-top: 1px solid var(--rule); margin: 0; }
 .nmhint { display: block; color: var(--ink2); font-size: calc(11px * var(--fs, 1)); margin-top: 2px; }
+.cmp { display: block; padding: 12px; } .cmpnames { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: start; } .cmpnames > div { display: grid; gap: 2px; min-width: 0; } .cmpnames b { overflow-wrap: anywhere; }
+.cmpnames span { font-size: calc(12px * var(--fs, 1)); } .cmpvs { align-self: center; color: var(--ink2); font-size: 12px; }
+.cmpwhy { margin: 8px 0; font-size: calc(13px * var(--fs, 1)); } .cmpbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.cmpb { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--rule); background: var(--bg, #fff); color: var(--ink); cursor: pointer; }
+.cmpb small { font-size: calc(11px * var(--fs, 1)); color: var(--ink2); line-height: 1.25; } .cmpb:hover, .cmpb:focus-visible { border-color: var(--accent, #3a6ee8); }
+.legend .k.rel { background: var(--warn, #c9871a); } .relhint { font-size: calc(12px * var(--fs, 1)); margin: 6px 0; }
+@media (max-width: 380px) { .cmpnames { grid-template-columns: 1fr; } .cmpvs { display: none; } }

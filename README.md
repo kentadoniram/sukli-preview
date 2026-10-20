@@ -2,6 +2,11 @@
 
 A private money tracker that runs entirely in the browser. Your data stays on your device, with an optional backup to a hidden folder in your own Google Drive. No server, no subscription, no AI service: the category guesser is a small model that learns from your own entries and runs on the phone.
 
+## What's new in v11
+
+- **Comparing two names, rebuilt.** The card now shows what Sukli knows about each name (times used, usual category, typical amount, last used), why it thinks they look alike (spelling %, shared words) and three answers with their consequences: **Same** (one thing, guesses are shared), **Related** (same family but its own category, for example coffee beans and coffee matcha; pick *A little / Somewhat / Nearly the same*, stored as 30 / 60 / 85%), **Different** (never compared again). Related pairs never copy a category; they appear as a quiet hint when you type one of the names, in Settings with their closeness, and as dashed links in the Name map.
+- **Receipts, tuned on your four photos** (LIFE and three cisca): sideways photos are turned upright by a small trial read; two readings are merged by arithmetic (items, tax and total must add up); digit look-alikes (O/0, l/1) and trailing junk are cleaned; shops are remembered by phone number or invoice number (T + 13 digits), so the next receipt from the same shop is recognised even if the name is misread. Item names that cannot be read show as "(unclear, type the name)" instead of wrong text.
+
 ## What's new in v9 (name graph, receipt scanner)
 
 - **Name similarity graph.** Names you have used are nodes; a link between two names has a strength from 0 to 100%: *you said same* (100%), *same chain* (95%), or *similar spelling and shared words* (below 90%). "Different" removes a link for good. A new name is attached to the graph and the strongest path to a known name is found (least-cost path, cost = -ln strength, Dijkstra), so a match through two links is weaker than a direct one. The entry sheet shows "Matched through: …" with the percentages, and Settings, Name matching, **Name map** draws the neighbourhood of any name, lets you try a name and shows the path.
