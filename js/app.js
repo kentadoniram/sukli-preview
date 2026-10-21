@@ -1,5 +1,6 @@
 // App shell: routing, tab bar, first-run screen, service worker, auto-backup hook.
 import { applyTypes } from './accpage.js';
+import { ALL_TABS, tabList } from './layout.js';
 import { setNameRules } from './merchants.js';
 import { initBackup } from './backup.js';
 import { load, get, subscribe, commit, seedCategories, balances, reviewCount, latestMonth, thisMonth, monthOf, priv } from './core.js';
@@ -35,9 +36,9 @@ function firstRun() {
 ACT['start-empty'] = () => { commit((d) => seedCategories(d)); ACT['acct-new'](); };
 
 function tabs(route) {
-  const t = [['home', 'Home', 'home'], ['ledger', 'Entries', 'list'], null, ['calendar', 'Calendar', 'calendar'], ['accounts', 'Accounts', 'wallet']];
-  const n = reviewCount(get());
-  return t.map((x) => x === null
+  const keys = tabList(get().settings), mid = Math.ceil(keys.length / 2), n = reviewCount(get());
+  const items = keys.map((k) => [k, ALL_TABS[k][0], ALL_TABS[k][1]]); items.splice(mid, 0, null);
+  return items.map((x) => x === null
     ? `<button class="fab" data-act="add" aria-label="Add an entry">${ic('plus')}</button>`
     : `<a href="#/${x[0]}" class="${route === x[0] ? 'on' : ''}" ${route === x[0] ? 'aria-current="page"' : ''}>${ic(x[2])}<span>${x[1]}</span>${x[0] === 'home' && n ? `<em class="dot" aria-label="${n} to check"></em>` : ''}</a>`).join('');
 }
@@ -48,7 +49,7 @@ function render() {
   pending = false;
   applyHide();
   const db = get();
-  const route = (location.hash.replace(/^#\/?/, '') || 'home').split('?')[0];
+  const route = (location.hash.replace(/^#\/?/, '') || tabList(get().settings)[0] || 'home').split('?')[0];
   const fn = routes[route] || home;
   const empty = !db.accounts.length && !db.txs.length;
   const y = window.scrollY;

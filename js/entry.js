@@ -15,6 +15,7 @@ import { openDatePicker, prettyDate } from './datepicker.js';
 import { openCurrencyPicker, favCurs, flagOf } from './curpicker.js';
 import { openAccountPicker } from './acctpicker.js';
 import { similarNames } from './merchants.js';
+import { MODES, isTransitName, isTransitCat, modeOf, guessHome, knownPlaces, suggestTrips } from './trips.js';
 
 // ---- models are rebuilt only when the data changed ----
 const cache = {};
@@ -48,14 +49,14 @@ function blank() {
   const db = get();
   const accts = db.accounts.filter((a) => !a.deleted && !a.archived);
   const last = accts.find((a) => a.id === db.settings.lastAcct) || accts.find((a) => a.include) || accts[0];
-  return { kind: 'expense', amount: '', name: '', acct: last ? last.id : '', toAcct: '', toAmount: '', fx: '', cat: '',
+  return { from: '', to: '', mode: '', kind: 'expense', amount: '', name: '', acct: last ? last.id : '', toAcct: '', toAmount: '', fx: '', cat: '',
     catTouched: false, acctTouched: false, acctSuggested: false, fxMode: 'rate', peso: '', date: nowStamp(), notes: '', items: [], flag: null, id: null, pred: null, showItems: false,
     fee: '', feeCat: '', feeBy: 'from', feeTouched: false, calc: false, convert: false, cRate: '', qtab: '', qtabManual: false };
 }
 function fromTx(t) {
   const db = get();
   const cross = t.kind === 'transfer' && t.toAmount != null && Math.abs(t.toAmount - t.amount) > 1e-9;
-  return { kind: t.kind, amount: String(t.amount), name: t.name || '', acct: t.acct, toAcct: t.toAcct || '',
+  return { from: (t.route && t.route.from) || '', to: (t.route && t.route.to) || '', mode: (t.route && t.route.mode) || '', kind: t.kind, amount: String(t.amount), name: t.name || '', acct: t.acct, toAcct: t.toAcct || '',
     toAmount: t.toAmount != null ? String(t.toAmount) : '', fx: t.fx ? prec(t.fx / homeRate(db, t.date)) : '', cat: t.cat || '',
     fee: t.fee > 0 ? String(t.fee) : '', feeCat: t.feeCat || '', feeBy: t.feeBy || 'from', feeTouched: true, calc: false,
     convert: cross, cRate: cross ? prec(t.toAmount / t.amount) : '', qtab: '', qtabManual: false,
@@ -402,6 +403,34 @@ export function openEntry(opts = {}) {
     const rel = f.kind === 'transfer' || !f.name.trim() ? [] : relatedNames(get(), f.name).slice(0, 2);
     el.innerHTML = c.map((x) => compareCard(get(), f.name.trim(), x.name)).join('') + (c.length ? '' : rel.map((x) => `<p class="relhint muted">Related to <b>${esc(x.name)}</b>${x.cat ? ` (${esc(x.cat)})` : ''}, ${Math.round(x.w * 100)}% close. It keeps its own category.</p>`).join(''));
   }
+  // optional trip fields: shown for transport entries only (by label or category), never required
+  const tripOn = () => f.kind === 'expense' && (isTransitName(f.name) || isTransitCat(get(), f.cat) || f.from || f.to);
+  function renderTripSug() {
+    const el = form.querySelector('#tripsug'); if (!el) return; const db = get();
+    const sug = suggestTrips(db, { hour: +String(f.date).slice(11, 13) || 0, from: f.from, mode: f.mode, home: guessHome(db, db.settings) }); el._sug = sug;
+    el.innerHTML = sug.map((x, i) => `<button type="button" class="chip tripchip" data-e="tripsug" data-i="${i}">${esc(x.from)} → ${esc(x.to)}${x.mode ? ' · ' + esc(x.mode) : ''}</button>`).join('') || (f.from ? '' : '');
+  }
+  function renderTrip() {
+    let el = form.querySelector('#trip');
+    if (!el) { const a = form.querySelector('#namehelp') || $f('namefield'); if (!a) return; el = document.createElement('div'); el.id = 'trip'; a.after(el); }
+    if (!tripOn()) { el.innerHTML = ''; return; }
+    const mg = modeOf(f.name); if (mg && !f.mode && !f.modeTouched) f.mode = mg;
+    if (el.querySelector('#f-from')) { renderTripSug(); return; }
+    el.innerHTML = `<div class="tripbox"><b>Trip <small class="muted">(optional)</small></b><div class="two"><label class="field"><span>From</span><input id="f-from" list="placelist" autocomplete="off" value="${esc(f.from)}"></label><label class="field"><span>To</span><input id="f-to" list="placelist" autocomplete="off" value="${esc(f.to)}"></label></div>
+      <datalist id="placelist">${knownPlaces(get()).map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <div class="seg sm scrollx" aria-label="How you travelled">${MODES.map((m) => `<button type="button" data-e="tripmode" data-v="${m}" class="${f.mode === m ? 'on' : ''}">${m}</button>`).join('')}</div><div id="tripsug" class="tripsug"></div></div>`;
+    renderTripSug();
+  }
+  form.addEventListener('input', (e) => {
+    if (e.target.id === 'f-from') { f.from = e.target.value; renderTripSug(); } else if (e.target.id === 'f-to') f.to = e.target.value;
+    else if (e.target.id === 'f-name') { f.name = e.target.value; renderTrip(); }      // read the box itself: this listener can run before the form's own
+  });
+  form.addEventListener('click', (e) => {
+    const m = e.target.closest('[data-e="tripmode"]'), s0 = e.target.closest('[data-e="tripsug"]');
+    if (m) { f.mode = f.mode === m.dataset.v ? '' : m.dataset.v; f.modeTouched = true; form.querySelectorAll('[data-e="tripmode"]').forEach((b) => b.classList.toggle('on', b.dataset.v === f.mode)); renderTripSug(); }
+    else if (s0) { const x = form.querySelector('#tripsug')._sug[+s0.dataset.i]; if (x) { f.from = x.from; f.to = x.to; f.mode = x.mode || f.mode; f.modeTouched = true; form.querySelector('#f-from').value = f.from; form.querySelector('#f-to').value = f.to; form.querySelectorAll('[data-e="tripmode"]').forEach((b) => b.classList.toggle('on', b.dataset.v === f.mode)); renderTripSug(); } }
+    else setTimeout(renderTrip, 0);                                            // a category was tapped
+  });
   function applyPick(name) {
     f.name = name; $f('f-name').value = name;
     if (f.kind === 'transfer') {
@@ -618,10 +647,11 @@ export function openEntry(opts = {}) {
     if (!label) {
       const dbx = get(), toName = (dbx.accounts.find((x) => x.id === f.toAcct) || {}).name || '';
       if (f.kind === 'transfer') { label = `${a.name}${toName ? ' - ' + toName : ''}`; autoLabel = 'transfer'; }
+      else if (f.kind === 'expense' && f.from.trim() && f.to.trim()) { label = `${f.from.trim()} - ${f.to.trim()}`; autoLabel = 'trip'; }
       else { const g = guessLabel(dbx, f.kind, cat, a.id, amount); label = g.label; autoLabel = g.weak ? 'weak' : 'history'; if (g.weak) flag = 'review'; }
     }
     const rec = { kind: f.kind, amount, cur: a.cur, fx, date: f.date, name: label, cat, acct: a.id,
-      toAcct: f.kind === 'transfer' ? f.toAcct : '', toAmount, fee, feeBy: fee ? f.feeBy : '', feeFx, feeCur, notes: f.notes.trim(), items: items && items.length ? items : [], flag };
+      toAcct: f.kind === 'transfer' ? f.toAcct : '', toAmount, fee, feeBy: fee ? f.feeBy : '', feeFx, feeCur, notes: f.notes.trim(), items: items && items.length ? items : [], flag, ...(f.kind === 'expense' && (f.from.trim() || f.to.trim()) ? { route: { from: f.from.trim(), to: f.to.trim(), mode: f.mode || '' } } : {}) };
     if (f.kind !== 'transfer' && cat && ((f.catTouched && f.guessed && f.guessed !== cat) || (existing && existing.cat && existing.cat !== cat) || (existing && existing.corrected))) rec.corrected = true;
     let savedAs;
     commit((d) => {

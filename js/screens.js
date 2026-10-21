@@ -23,6 +23,8 @@ export { accounts };
 import { esc, ic, ACT, sheet, toast, confirmDialog, promptDialog, download } from './ui.js';
 import { rollingSummary } from './insights.js';
 import { versionLabel } from './version.js';
+import { guessHome } from './trips.js';
+import { ALL_TABS, HOME_PARTS, tabList, homeFull, homeOrder } from './layout.js';
 import { nameRules, similarPairs, learnSame, learnApart, learnRelated, forget } from './merchants.js';
 import { compareCard } from './compare.js';
 import { buildGraph, clusters, neighbourhood, matches, explain, edgeText } from './simgraph.js';
@@ -114,19 +116,22 @@ export function home(db) {
     return `<span>${money(v, c)}${e ? `<small> ${e}</small>` : ''}</span>`;
   }).join('');
   const ins = insights(db, ui.month);
+  const P = {
+    totals: `${strip(st)}`,
+    spendable: `<section class="spendable"><div><span>Spendable now</span><b>${money(sp.total)}</b></div><div class="curs">${chips || '<span class="muted">No balances yet</span>'}</div>
+${sp.missing.length ? `<p class="hint">Not counted: ${sp.missing.join(', ')} (set a rate in Settings).</p>` : ''}</section>`,
+    alerts: `${reminderBanner(db)}
+${n ? `<a class="banner" href="#/review"><strong>${n} ${n === 1 ? 'entry needs' : 'entries need'} a quick check</strong><span>Confirm the guessed categories</span>${ic('right')}</a>` : ''}`,
+    insights: `${ins.length ? coll('h-ins', 'Worth knowing', `<ul class="ins">${ins.map((x) => `<li class="${x.tone}">${x.id ? `<button class="insb" data-act="edit" data-id="${x.id}">${esc(x.text)}</button>` : esc(x.text)}</li>`).join('')}</ul>`) : ''}`,
+    pace: `${paceCard(db)}`,
+    outlook: `${outlookCard(db)}`,
+    out: `${coll('h-out', 'Where it went', groups.length ? groups.map(([g, v]) => gbar(db, g, v, max, 'expense', out.total)).join('') + '<p class="hint tap">Tap a group to see what is in it.</p>' : `<p class="empty">Nothing spent in ${esc(monthLabel(ui.month))} yet.</p>`)}`,
+    inc: `${coll('h-in', 'Where it came from', incGroups.length ? incGroups.map(([g, v]) => gbar(db, g, v, incGroups[0][1], 'income', inc.total)).join('') : `<p class="empty">Nothing came in during ${esc(monthLabel(ui.month))} yet.</p>`)}`,
+    six: `${coll('h-6', 'Last 6 months', `${trendChart(trend(db, ui.month, 6), ui.month, 6)}<p class="legend"><i class="k bar"></i>Cash outflow <i class="k inc"></i>Cash inflow · tap a month</p>`)}`,
+    latest: `${coll('h-latest', 'Latest', `<div class="rows">${recent.length ? recent.map((t) => row(t, accts, cats)).join('') : '<p class="empty">No entries this month. Tap + to add one.</p>'}</div>`, '<a href="#/ledger" class="linkbtn">All entries</a>')}`,
+  };
   return `${monthNav()}
-    ${strip(st)}
-    <section class="spendable"><div><span>Spendable now</span><b>${money(sp.total)}</b></div><div class="curs">${chips || '<span class="muted">No balances yet</span>'}</div>
-      ${sp.missing.length ? `<p class="hint">Not counted: ${sp.missing.join(', ')} (set a rate in Settings).</p>` : ''}</section>
-    ${reminderBanner(db)}
-    ${n ? `<a class="banner" href="#/review"><strong>${n} ${n === 1 ? 'entry needs' : 'entries need'} a quick check</strong><span>Confirm the guessed categories</span>${ic('right')}</a>` : ''}
-    ${ins.length ? coll('h-ins', 'Worth knowing', `<ul class="ins">${ins.map((x) => `<li class="${x.tone}">${x.id ? `<button class="insb" data-act="edit" data-id="${x.id}">${esc(x.text)}</button>` : esc(x.text)}</li>`).join('')}</ul>`) : ''}
-    ${paceCard(db)}
-    ${outlookCard(db)}
-    ${coll('h-out', 'Where it went', groups.length ? groups.map(([g, v]) => gbar(db, g, v, max, 'expense', out.total)).join('') + '<p class="hint tap">Tap a group to see what is in it.</p>' : `<p class="empty">Nothing spent in ${esc(monthLabel(ui.month))} yet.</p>`)}
-    ${coll('h-in', 'Where it came from', incGroups.length ? incGroups.map(([g, v]) => gbar(db, g, v, incGroups[0][1], 'income', inc.total)).join('') : `<p class="empty">Nothing came in during ${esc(monthLabel(ui.month))} yet.</p>`)}
-    ${coll('h-6', 'Last 6 months', `${trendChart(trend(db, ui.month, 6), ui.month, 6)}<p class="legend"><i class="k bar"></i>Cash outflow <i class="k inc"></i>Cash inflow · tap a month</p>`)}
-    ${coll('h-latest', 'Latest', `<div class="rows">${recent.length ? recent.map((t) => row(t, accts, cats)).join('') : '<p class="empty">No entries this month. Tap + to add one.</p>'}</div>`, '<a href="#/ledger" class="linkbtn">All entries</a>')}`;
+    ${homeOrder(db.settings).map((k) => P[k] || '').join('\n')}`;
 }
 
 const esc0 = (t) => String(t);
@@ -440,6 +445,8 @@ export function settings(db) {
       <div class="field"><span>New account type</span><input id="atype-new" placeholder="e.g. Money owed to me" data-noclear="1"></div>
       <label class="field inline"><span>It is</span><select id="atype-kind"><option value="asset">An asset (money I have or am owed)</option><option value="liab">A liability (money I owe)</option></select></label>
       <button type="button" class="btn" data-act="atype-add">Add account type</button></section>`; })()}
+    ${layoutSection(db)}
+    <section id="tripset"><h2>Trips</h2><p class="hint">Public-transport entries can have an optional From and To. Sukli works out your home place from your trips, and uses it to suggest the right direction for the time of day. Type it here to set it yourself.</p><label class="field"><span>Home place</span><input data-hp value="${esc(db.settings.homePlace || '')}" placeholder="${esc(guessHome(db, db.settings) || 'e.g. San Pedro')}"></label></section>
     <section><h2>Appearance</h2>
       <label class="check"><input type="checkbox" data-act="commas" ${localStorage.getItem('sukli.commas') === '0' ? '' : 'checked'}> Show thousands separators when typing (119,000)</label>
       <p class="hint">These are kept on this device only.</p>
@@ -686,9 +693,9 @@ ACT['nm-focus'] = (el) => mapSheet(el.dataset.k);
 
 // Settings, grouped by what they are for. Advanced items sit in their own folded group.
 const SET_GROUPS = [
-  ['look', 'Look and feel', 'Colours, text size, what is shown', ['Appearance', 'Display']],
+  ['look', 'Look and feel', 'Tabs, Home layout, colours, text size', ['Tabs and Home layout', 'Appearance', 'Display']],
   ['money', 'Money and alerts', 'Home currency, spending warnings', ['Currency', 'Spending safety', 'Left out of cash outflow']],
-  ['organise', 'Accounts, categories and names', 'How things are sorted and matched', ['Categories', 'Account types', 'Name matching']],
+  ['organise', 'Accounts, categories and names', 'How things are sorted and matched', ['Categories', 'Account types', 'Name matching', 'Trips']],
   ['data', 'Backup and data', 'Reminders, backups, export', ['Backup reminder', 'Your data', 'Google backup (optional)']],
   ['adv', 'Advanced', 'Most people never need these', ['Exchange rates', 'Live exchange rates', 'Coins and tokens: decimals', 'Cloud sync', 'Erase']],
   ['help', 'Help', 'Install on your phone', ['Put it on your phone']],
@@ -720,3 +727,17 @@ function rollingCard(p) {
     ${(() => { const mx = Math.max(...r.daily.map((d) => d.v), 1), bw = W / 30; return `<h3 class="dailyh">Daily spending, last 30 days</h3><svg viewBox="0 0 ${W} 74" class="chart" role="img" aria-label="Daily spending, last 30 days">${r.daily.map((d, i) => `<rect x="${(i * bw + 1).toFixed(1)}" y="${(58 - (d.v / mx) * 54).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${Math.max(1, (d.v / mx) * 54).toFixed(1)}" rx="2" fill="${d.v > r.typical * 2 ? 'var(--bad, #d9534f)' : 'var(--line)'}" opacity="${d.v ? 1 : 0.25}"><title>${esc(d.date)}: ${R(d.v)}</title></rect>`).join('')}${r.daily.map((d, i) => (i % 7 === 0 ? `<text x="${(i * bw + bw / 2).toFixed(0)}" y="71" font-size="9" fill="currentColor" text-anchor="middle">${esc(d.date.slice(5))}</text>` : '')).join('')}</svg>`; })()}
     <p class="hint">Each point is the total of 7 consecutive days ending that day, divided by 7, zero days included. The dashed line is your usual (median); the band is the middle half. ${chg}${tr}</p></div>`;
 }
+
+// ---- Settings: which tabs, in what order, and what Home shows ----
+function layoutSection(db) {
+  const st = db.settings, tabs = tabList(st), hid = new Set(st.homeHide || []), all = [...tabs, ...Object.keys(ALL_TABS).filter((k) => !tabs.includes(k))];
+  const arrows = (kind, k, i, n) => `<span class="lay-mv"><button type="button" class="btn sm ghost" data-act="lay-move" data-kind="${kind}" data-k="${k}" data-d="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move up">▲</button><button type="button" class="btn sm ghost" data-act="lay-move" data-kind="${kind}" data-k="${k}" data-d="1" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">▼</button></span>`;
+  return `<section id="layout"><h2>Tabs and Home layout</h2><p class="hint">Choose which screens sit in the bottom bar (3 to 5) and in what order. The + button stays in the middle, and the first tab is the screen the app opens on. Calendar, Analytics and the others can go anywhere you like.</p>
+    <h3>Bottom bar</h3>${all.map((k) => { const on = tabs.includes(k), i = tabs.indexOf(k); return `<div class="layrow"><label class="check"><input type="checkbox" data-act="lay-tab" data-k="${k}" ${on ? 'checked' : ''}> ${esc(ALL_TABS[k][0])}${on && i === 0 ? ' <small class="muted">(opens first)</small>' : ''}</label>${on ? arrows('tab', k, i, tabs.length) : ''}</div>`; }).join('')}
+    <h3>Home screen</h3>${homeFull(st).map((k, i, a) => `<div class="layrow"><label class="check"><input type="checkbox" data-act="lay-home" data-k="${k}" ${hid.has(k) ? '' : 'checked'}> ${esc(HOME_PARTS.find((p) => p[0] === k)[1])}</label>${arrows('home', k, i, a.length)}</div>`).join('')}</section>`;
+}
+ACT['lay-tab'] = (el) => { const k = el.dataset.k; commit((d) => { let t = tabList(d.settings); if (el.checked) { if (t.length < 5) t = [...t, k]; else { toast('The bar holds up to 5 tabs.'); } } else if (t.length > 3) t = t.filter((x) => x !== k); else toast('Keep at least 3 tabs.'); d.settings.tabs = t; }); };
+ACT['lay-home'] = (el) => { const k = el.dataset.k; commit((d) => { const h = new Set(d.settings.homeHide || []); if (el.checked) h.delete(k); else h.add(k); d.settings.homeHide = [...h]; }); };
+ACT['lay-move'] = (el) => { const k = el.dataset.k, dir = +el.dataset.d, kind = el.dataset.kind; commit((d) => { const arr = kind === 'tab' ? [...tabList(d.settings)] : [...homeFull(d.settings)], i = arr.indexOf(k), j = i + dir; if (i < 0 || j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; if (kind === 'tab') d.settings.tabs = arr; else d.settings.homeOrder = arr; }); };
+
+document.addEventListener('change', (e) => { if (e.target.dataset && 'hp' in e.target.dataset) commit((d) => { d.settings.homePlace = e.target.value.trim(); }); });

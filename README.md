@@ -1,3 +1,8 @@
+## What's new in v14.3
+
+- **Settings, Tabs and Home layout:** choose which screens are in the bottom bar (3 to 5), put them in any order (the + stays in the middle, the first tab is where the app opens), and reorder or hide each Home section. Edit `js/layout.js` to add more tab destinations or Home sections.
+- **Transit trips:** typing bus, MRT, jeep, taxi, train (or Japanese equivalents) or choosing a Transportation category shows optional From / To / mode on an expense. Suggestions come from your own trips and the time of day; from the place you type, it suggests where you usually go next. Home is worked out from your trips (or set it in Settings, Trips). The two directions of a route are kept as two directions of one route. A blank label becomes "From - To".
+
 ## What's new in v14.2
 
 - **Account page: a + button** (bottom right) to add Expense, Income, Transfer out of this account or Transfer into this account. Transfers are prefilled with the account you most often send to (or receive from) and the label you used most for it.
