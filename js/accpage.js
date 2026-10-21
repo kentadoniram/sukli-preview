@@ -4,7 +4,7 @@ import {
   get, commit, uid, stamp, nowStamp, rateFor, fmt, BASE, HOME, homeFx, allCurrencies, curName, CUR, balances, catMap, accountMap, live, groupColor, groupLetter,
   adjustmentCategory, shiftMonth, thisMonth, monthLabel, monthParts, deltaFor, dayLabel,
 } from './core.js';
-import { accountHistory, netWorth, cardInfo, cardReminders, cardIcs, isLiability, setLiab, today, postInterest } from './finance.js';
+import { transferGuess, accountHistory, netWorth, cardInfo, cardReminders, cardIcs, isLiability, setLiab, today, postInterest } from './finance.js';
 import { esc, ic, ACT, sheet, toast, download, confirmDialog, promptDialog } from './ui.js';
 import { applyHide } from './appearance.js';
 import { money, eq, hdr, coll, ui } from './screens.js';
@@ -206,6 +206,7 @@ export function openAccountDetail(id) {
       <div class="btnrow tight"><button class="btn sm" data-ad="add">Add entry</button>
         ${['asset', 'invest', 'other'].includes(a.type) ? '<button class="btn sm ghost" data-ad="reval">Update value</button>' : ''}
         <button class="btn sm ghost" data-ad="edit">Edit</button></div>
+      <div class="adfab"><button type="button" class="fab2" data-ad="fab" aria-label="Add a transaction to this account">+</button></div>
       <div class="rangebar seg sm" role="group" aria-label="Chart range">${[[30, '30 days'], [90, '90 days'], [365, '1 year'], [0, 'All']].map(([v, l]) => `<button type="button" data-ad="range" data-v="${v}" class="${st.range === v ? 'on' : ''}" aria-pressed="${st.range === v}">${l}</button>`).join('')}</div>
       <svg class="chart scrub" data-pts="${esc(JSON.stringify(pts))}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Balance over time. Touch and drag to read each day.">
         <path d="${area}" fill="var(--tint)"/><path d="${path}" fill="none" stroke="var(--line)" stroke-width="2.4" stroke-linejoin="round"/></svg>
@@ -237,6 +238,12 @@ export function openAccountDetail(id) {
     const db = get(), a = db.accounts.find((x) => x.id === id);
     switch (b.dataset.ad) {
       case 'add': openEntry({ preset: { acct: id } }); break;
+      case 'fab': { const m = sheet(`<div class="fabmenu2"><button class="btn wide" data-k="expense">Expense</button><button class="btn wide ghost" data-k="income">Income</button><button class="btn wide ghost" data-k="out">Transfer out of this account</button><button class="btn wide ghost" data-k="in">Transfer into this account</button></div>`, { title: 'Add to this account' });
+        m.el.addEventListener('click', (e) => { const k = e.target.closest('[data-k]'); if (!k) return; m.close(); const db = get(), kind = k.dataset.k;
+          if (kind === 'expense' || kind === 'income') { openEntry({ preset: { kind, acct: id } }); return; }
+          const g = transferGuess(db, id, kind);                                   // the usual other account, and the label used most for it
+          openEntry({ preset: kind === 'out' ? { kind: 'transfer', acct: id, toAcct: g ? g.id : '', name: g ? g.name : '' } : { kind: 'transfer', acct: g ? g.id : '', toAcct: id, name: g ? g.name : '' } }); });
+        break; }
       case 'edit': openAccount(id); break;
       case 'range': st.range = +b.dataset.v; draw(); break;
       case 'more': st.more += 25; draw(); break;

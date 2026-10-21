@@ -128,8 +128,25 @@ export function analytics(db) {
     weekday: (p) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(p.t.date.slice(0, 10) + 'T00:00:00Z').getUTCDay()], currency: (p) => (am.get(p.t.acct) || { cur: '?' }).cur }[A.by];
   const m = new Map(); for (const p of exps) { const k = keyOf(p); m.set(k, (m.get(k) || 0) + p.v); }
   const rows = [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12), mx = rows.length ? rows[0][1] : 1;
-  const breakdown = `<div class="seg sm scrollx" role="group" aria-label="Group by">${[['group', 'Group'], ['category', 'Category'], ['account', 'Account'], ['weekday', 'Weekday'], ['currency', 'Currency']].map(([v, l]) => `<button type="button" data-act="an-by" data-v="${v}" class="${A.by === v ? 'on' : ''}" aria-pressed="${A.by === v}">${l}</button>`).join('')}</div>
+  LAST.keyOf = keyOf; A.view = A.view || 'bars';
+  const breakdown0 = `<div class="seg sm scrollx" role="group" aria-label="Group by">${[['group', 'Group'], ['category', 'Category'], ['account', 'Account'], ['weekday', 'Weekday'], ['currency', 'Currency']].map(([v, l]) => `<button type="button" data-act="an-by" data-v="${v}" class="${A.by === v ? 'on' : ''}" aria-pressed="${A.by === v}">${l}</button>`).join('')}</div>
     ${rows.map(([k, v]) => `<button class="gbar" data-act="an-key" data-k="${esc(k)}" data-tip="${esc(`${k}: ${money(v)}`)}"><i class="badge sm" style="background:${groupColor(k)}">${esc(k[0])}</i><div class="gmain"><div class="gtop"><span>${esc(k)} <small class="pct">${E ? Math.round(v / E * 100) : 0}%</small></span><b>${money(v)}</b></div><div class="track"><div class="fill" style="width:${Math.max(2, v / mx * 100)}%;background:${groupColor(k)}"></div></div></div></button>`).join('') || '<p class="empty">No spending in this period.</p>'}`;
+  const PAL = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f'];
+  const pieHtml = (() => {
+    const all = [...m.entries()].sort((a, b) => b[1] - a[1]), top = all.slice(0, 8), rest = all.slice(8), restSum = rest.reduce((n, x) => n + x[1], 0), tot = all.reduce((n, x) => n + x[1], 0);
+    if (!tot) return '<p class="empty">No spending in this period.</p>';
+    LAST.pieTop = top.map((x) => x[0]);
+    const slices = [...top.map(([k, v], i) => ({ k, v, c: PAL[i % PAL.length] })), ...(restSum ? [{ k: '__other', label: `Other (${rest.length})`, v: restSum, c: '#9aa0a6' }] : [])];
+    const R0 = 62, C = 70; let a0 = -Math.PI / 2;
+    const paths = slices.map((x) => { const fr = x.v / tot, a1 = a0 + fr * 2 * Math.PI, big = fr > 0.5 ? 1 : 0, p = (a) => `${(C + R0 * Math.cos(a)).toFixed(2)},${(C + R0 * Math.sin(a)).toFixed(2)}`;
+      const d = fr >= 0.9999 ? `M${C - R0},${C}a${R0},${R0} 0 1,0 ${2 * R0},0a${R0},${R0} 0 1,0 ${-2 * R0},0Z` : `M${C},${C}L${p(a0)}A${R0},${R0} 0 ${big} 1 ${p(a1)}Z`; a0 = a1;
+      return `<path d="${d}" fill="${x.c}" stroke="var(--sheet, #fff)" stroke-width="1.5" data-act="an-key" data-k="${esc(x.k)}" data-tip="${esc(`${x.label || x.k}: ${money(x.v)} (${Math.round(fr * 100)}%)`)}" tabindex="0" role="button" aria-label="${esc(`${x.label || x.k} ${Math.round(fr * 100)} percent`)}"></path>`; }).join('');
+    const leg = slices.map((x) => `<button type="button" class="pieleg-row" data-act="an-key" data-k="${esc(x.k)}"><i style="background:${x.c}"></i><span class="pn">${esc(x.label || x.k)}</span><b>${Math.round(x.v / tot * 100)}%</b><small>${money(x.v)}</small></button>`).join('');
+    return `<div class="piewrap"><svg viewBox="0 0 140 140" class="pie" role="img" aria-label="Spending split">${paths}</svg><div class="pieleg">${leg}</div></div>`;
+  })();
+  const bi = breakdown0.indexOf('</div>') + 6, toggle = `<div class="seg sm" role="group" aria-label="Chart type">${[['bars', 'Bars'], ['pie', 'Pie']].map(([v, l]) => `<button type="button" data-act="an-view" data-v="${v}" class="${A.view === v ? 'on' : ''}" aria-pressed="${A.view === v}">${l}</button>`).join('')}</div>`;
+  const breakdown = breakdown0.slice(0, bi) + toggle + (A.view === 'pie' ? pieHtml : breakdown0.slice(bi));
+
 
   // budgets + spending limit
   const monthKey = (P.to > today() ? today() : P.to).slice(0, 7);
@@ -167,6 +184,7 @@ export function analytics(db) {
 const redraw = () => window.dispatchEvent(new Event('sukli-render'));
 ACT['an-range'] = (el) => { A.range = el.dataset.v; redraw(); };
 ACT['an-by'] = (el) => { A.by = el.dataset.v; redraw(); };
+ACT['an-view'] = (el) => { A.view = el.dataset.v; redraw(); };
 ACT['an-from'] = () => { const P = period(); openDatePicker(P.from + ' 00:00:00', (v) => { A.from = v.slice(0, 10); if (A.to && A.to < A.from) A.to = A.from; redraw(); }, { time: false, title: 'From date' }); };
 ACT['an-to'] = () => { const P = period(); openDatePicker(P.to + ' 00:00:00', (v) => { A.to = v.slice(0, 10); if (A.from && A.to < A.from) A.from = A.to; redraw(); }, { time: false, title: 'To date' }); };
 ACT['an-list'] = (el) => { const k = el.dataset.k, ps = LAST.parts; openTxList({ inc: 'Income', exp: 'Spending', net: 'Income and spending' }[k], ps.filter((p) => k === 'net' || (k === 'inc' ? p.kind === 'income' : p.kind === 'expense'))); };
@@ -176,6 +194,7 @@ ACT['an-key'] = (el) => {
   const f = { group: (p) => (p.group || 'Uncategorized') === k, category: (p) => (cm.get(p.cat) || { name: 'Uncategorized' }).name === k, account: (p) => (am.get(p.t.acct) || { name: '?' }).name === k,
     weekday: (p) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(p.t.date.slice(0, 10) + 'T00:00:00Z').getUTCDay()] === k, currency: (p) => (am.get(p.t.acct) || {}).cur === k }[A.by];
   const isBudget = el.closest('.coll') && el.closest('.coll').innerHTML.includes('an-bud');
+  if (k === '__other') { openTxList('Other', LAST.parts.filter((p) => p.kind === 'expense' && !(LAST.pieTop || []).includes(LAST.keyOf(p)))); return; }
   openTxList(k, LAST.parts.filter((p) => p.kind === 'expense' && (isBudget ? (p.group || 'Uncategorized') === k : f(p))));
 };
 document.addEventListener('change', (e) => { const s = e.target.closest && e.target.closest('[data-an]'); if (s) { A[s.dataset.an] = s.value; redraw(); } });

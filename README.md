@@ -1,3 +1,9 @@
+## What's new in v14.2
+
+- **Account page: a + button** (bottom right) to add Expense, Income, Transfer out of this account or Transfer into this account. Transfers are prefilled with the account you most often send to (or receive from) and the label you used most for it.
+- **Swap (⇄)** between From and To in any transfer, in case the selected account is the receiving one.
+- **Where the money went: Bars or Pie.** The pie shows the share of each group, category, account, weekday or currency, with the legend (percent and amount) on the right. Tap a slice or a legend row for the entries behind it; small slices are gathered under "Other" and open the same way.
+
 ## What's new in v14.1
 
 - **Version** shown at the bottom of Settings. Edit `js/version.js` (major, fresh, base, date) to change it.

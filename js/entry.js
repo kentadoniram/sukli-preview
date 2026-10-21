@@ -204,7 +204,7 @@ export function openEntry(opts = {}) {
       el.innerHTML = `<div class="field ${sug ? 'suggested' : ''}"><span>Account ${sug ? '<small class="sugnote">suggested from your history  tap to change</small>' : ''}</span><button type="button" class="acctbtn" data-e="acctpick" data-which="acct">${esc((acctOf(f.acct) || { name: 'Choose account' }).name)}${acctOf(f.acct) ? ' · ' + acctOf(f.acct).cur : ''} ▾</button><select id="f-acct" hidden aria-hidden="true">${acctOptions(f.acct, '', '')}</select></div>`;
     } else {
       if (!f.toAcct) { const o = get().accounts.find((x) => !x.deleted && !x.archived && x.id !== f.acct); f.toAcct = o ? o.id : ''; }
-      el.innerHTML = `<div class="two"><div class="field"><span>From</span><button type="button" class="acctbtn" data-e="acctpick" data-which="acct">${esc((acctOf(f.acct) || { name: 'Choose' }).name)} ▾</button><select id="f-acct" hidden aria-hidden="true">${acctOptions(f.acct, f.toAcct, '')}</select></div>
+      el.innerHTML = `<div class="two xferpair"><button type="button" class="swapbtn" data-e="swapacct" aria-label="Swap from and to">⇄</button><div class="field"><span>From</span><button type="button" class="acctbtn" data-e="acctpick" data-which="acct">${esc((acctOf(f.acct) || { name: 'Choose' }).name)} ▾</button><select id="f-acct" hidden aria-hidden="true">${acctOptions(f.acct, f.toAcct, '')}</select></div>
         <div class="field"><span>To</span><button type="button" class="acctbtn" data-e="acctpick" data-which="to">${esc((acctOf(f.toAcct) || { name: 'Choose' }).name)} ▾</button><select id="f-to" hidden aria-hidden="true">${acctOptions(f.toAcct, f.acct)}</select></div></div>`;
     }
     renderConv();
@@ -511,6 +511,7 @@ export function openEntry(opts = {}) {
         arrange(); renderSeg(); renderFreq(); renderAccts(); renderFx(); refreshPred(); renderCats(); renderItems(); renderSugg(); renderSafety(); break;
       case 'qtab': f.qtab = v; f.qtabManual = true; renderFreq(); break;
       case 'pick': applyPick(v); break;
+      case 'swapacct': { const a0 = f.acct; f.acct = f.toAcct; f.toAcct = a0; f.fx = ''; f.cRate = ''; f.toAmount = ''; f.acctTouched = true; renderAccts(); renderCur(); renderFx(); break; }
       case 'acctpick': { const to = b.dataset.which === 'to', sel = $f(to ? 'f-to' : 'f-acct'), a = acctOf(f.acct);
         openAccountPicker({ selected: sel.value, skip: to ? f.acct : (f.kind === 'transfer' ? f.toAcct : ''), cur: to ? '' : (a && a.cur) || '', title: to ? 'To account' : f.kind === 'transfer' ? 'From account' : 'Account' }, (id) => { sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true })); }); break; }
       case 'curpick': openCurrencyPicker((c) => { const sel = $f('f-cur'); if (![...sel.options].some((o) => o.value === c)) sel.add(new Option(c, c)); sel.value = c; sel.dispatchEvent(new Event('change', { bubbles: true })); }, { title: 'Currency' }); break;

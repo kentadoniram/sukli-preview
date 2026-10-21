@@ -449,3 +449,15 @@ export function safetyCheck(db, { amount, acctId, kind = 'expense', date, group 
   const rank = { danger: 0, warn: 1, info: 2 };
   return out.sort((x, y) => rank[x.level] - rank[y.level]).slice(0, 4);
 }
+
+// For a transfer started from an account page: which account it usually goes to (out) or comes from (in), and the label used most.
+export function transferGuess(db, acctId, dir) {
+  const per = new Map();
+  for (const t of live(db.txs)) { if (t.kind !== 'transfer') continue; const other = dir === 'out' ? (t.acct === acctId ? t.toAcct : null) : (t.toAcct === acctId ? t.acct : null); if (!other) continue;
+    const e = per.get(other) || { id: other, n: 0, last: '', names: new Map() }; e.n++; if (t.date > e.last) e.last = t.date; const k = (t.name || '').trim(); if (k) e.names.set(k, (e.names.get(k) || 0) + 1); per.set(other, e); }
+  const ok = (id) => db.accounts.some((a) => a.id === id && !a.deleted && !a.archived);
+  const best = [...per.values()].filter((e) => ok(e.id)).sort((a, b) => b.n - a.n || (b.last > a.last ? 1 : -1))[0];
+  if (!best) return null;
+  const name = [...best.names.entries()].sort((a, b) => b[1] - a[1])[0];
+  return { id: best.id, name: name ? name[0] : '' };
+}
